@@ -9,6 +9,7 @@
     "filter.unread": "Non lues",
     "filter.all": "Toutes",
     "markAll": "Tout marquer comme lu",
+    "markUnread": "Marquer comme non lu",
     "empty.unread": "Rien de non lu.",
     "empty.all": "Pas encore de notifications.",
     "loadMore": "Plus anciennes",

@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
 .nib-content{max-width:820px;margin:0 auto;padding:0 clamp(16px,4vw,48px) 48px}
 .nib-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding-top:28px;margin-bottom:16px}
 [data-platform=darwin] .nib-head{padding-top:calc(28px + var(--dsh-frame-top-clearance,0px))}
-.nib-head h1{margin:0;font-size:20px;font-weight:500;line-height:28px;flex:1;min-width:0}
+.nib-head h1{margin:0;font-size:20px;font-weight:500;line-height:28px;flex:1 0 auto;max-width:100%}
 .nib-count{color:var(--dsw-alias-label-tertiary);font-size:13px;margin-left:8px;font-weight:400}
 .nib-tabs{display:inline-flex;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-interactive-bg-hover))}
 .nib-tab{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;padding:2px 12px;border-radius:8px;cursor:pointer}
@@ -44,6 +44,9 @@ window.__ModuleLoader__.load({
 .nib-list{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
 .nib-item{border-radius:12px;padding:10px 12px;position:relative}
 .nib-item.nib-open{background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-interactive-bg-hover))}
+.nib-line{display:flex;align-items:flex-start;gap:4px}
+.nib-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:-3px -6px -3px 0;border:none;border-radius:var(--dsw-radius-sm,8px);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+@media (hover:hover){.nib-mark:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}
 .nib-row{display:flex;gap:10px;align-items:flex-start;width:100%;border:none;background:transparent;color:inherit;font:inherit;text-align:left;padding:0;cursor:pointer}
 .nib-dot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:8px;background:transparent}
 .nib-unread .nib-dot{background:var(--dsw-alias-state-business-primary)}
@@ -56,7 +59,7 @@ window.__ModuleLoader__.load({
 .nib-time{flex:none;color:var(--dsw-alias-label-caption);font-size:12px}
 .nib-spoken{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
 .nib-chip{display:inline-block;flex:none;padding:0 6px;border-radius:6px;font-size:11px;line-height:18px;font-weight:500;color:var(--dsw-alias-state-error-primary);box-shadow:inset 0 0 0 .5px currentColor}
-.nib-chip.nib-muted{color:var(--dsw-alias-label-tertiary)}
+.nib-chip.nib-muted{color:var(--dsw-alias-label-tertiary);font-weight:400;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nib-body{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:10px}
 .nib-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:22px}
 .nib-links{display:flex;flex-direction:column;gap:2px;font-size:13px}
@@ -66,13 +69,14 @@ window.__ModuleLoader__.load({
 .nib-ok{color:var(--dsw-alias-state-success-primary)}
 .nib-bad{color:var(--dsw-alias-state-error-primary)}
 .nib-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.nib-actions .nib-btn{height:32px;padding:0 12px}
 .nib-status{color:var(--dsw-alias-label-tertiary);font-size:12px}
 .nib-empty{color:var(--dsw-alias-label-tertiary);padding:24px 12px}
 .nib-error{color:var(--dsw-alias-state-error-primary);padding:12px}
 .nib-more{margin:12px auto 0;display:flex}
 .nib-icon{position:relative;display:inline-flex}
 .nib-badge{position:absolute;top:-5px;right:-8px;min-width:14px;height:14px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--dsw-alias-state-error-primary);color:#fff;font-size:9px;font-weight:600;line-height:14px;text-align:center;pointer-events:none}
-@media (width<=640px),(pointer:coarse){.nib-btn,.nib-tab,.nib-page .ua-btn{min-height:40px;min-width:40px}.nib-tab{padding-inline:14px}.nib-tabs{border-radius:12px}}
+@media (width<=640px),(pointer:coarse){.nib-btn,.nib-tab,.nib-page .ua-btn{min-height:40px;min-width:40px}.nib-mark{width:40px;height:40px;margin:-10px -8px -10px 0}.nib-tab{padding-inline:14px}.nib-tabs{border-radius:12px}}
 @media (width<=640px){.nib-content{padding-inline:12px}.nib-head{padding-top:16px}.nib-body{margin-left:0}.nib-item{padding:10px 8px}}
 `
 
@@ -155,8 +159,9 @@ window.__ModuleLoader__.load({
       return states
     }
 
-    function Actions({ item, t, ui }) {
-      if (ui === null) return null
+    function Actions({ item, t, ui, onMark }) {
+      const markUnread = item.read && h('button', { type: 'button', className: 'nib-btn', onClick: () => onMark(item, false) }, t('markUnread'))
+      if (ui === null) return markUnread ? h('div', { className: 'nib-actions' }, markUnread) : null
       const declared = item.actions.some(action => action.kind === 'chat') ? item.actions : [{ kind: 'chat', id: 'chat', payload: {} }, ...item.actions]
       const chat = action => ui.startChat({
         text: ui.chatText({ prompt: action.payload?.prompt ?? '', title: item.title || item.spoken, lines: (item.text || item.spoken).split('\n'),
@@ -169,17 +174,26 @@ window.__ModuleLoader__.load({
       }
       const status = pressStatus(item, t)
       return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: declared, states: pressStates(item), chat, onPress }),
+        markUnread,
         status && h('span', { className: 'nib-status' }, status))
     }
 
     // ---- one notification ----
 
-    function Item({ item, t, open, onToggle, ui }) {
+    function MarkUnreadIcon() {
+      return h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, focusable: 'false' },
+        h('path', { d: 'M9.5 3.5H3A1.5 1.5 0 0 0 1.5 5v6.5A1.5 1.5 0 0 0 3 13h9a1.5 1.5 0 0 0 1.5-1.5V8' }),
+        h('path', { d: 'M1.8 4.6 7.5 8.6l2.3-1.6' }),
+        h('circle', { cx: 12.5, cy: 3.5, r: 2, fill: 'currentColor', stroke: 'none' }))
+    }
+
+    function Item({ item, t, open, onToggle, onMark, ui }) {
       const urgent = item.lane === 'interrupt'
       const className = ['nib-item', item.read ? '' : 'nib-unread', urgent ? 'nib-urgent' : '', open ? 'nib-open' : ''].filter(Boolean).join(' ')
       const title = item.title || item.spoken || item.text.slice(0, 80)
       const sub = item.spoken && item.spoken !== title ? item.spoken : item.text !== title ? item.text : ''
       return h('li', { className, id: `nib-${item.id}` },
+        h('div', { className: 'nib-line' },
         h('button', { type: 'button', className: 'nib-row', 'aria-expanded': open, onClick: () => onToggle(item) },
           h('span', { className: 'nib-dot', 'aria-hidden': true }),
           h('span', { className: 'nib-main' },
@@ -187,8 +201,10 @@ window.__ModuleLoader__.load({
               urgent && h('span', { className: 'nib-chip' }, t('urgent')),
               item.test && h('span', { className: 'nib-chip nib-muted' }, t('test')),
               h('span', { className: 'nib-title' }, title),
+              !open && item.presses.length > 0 && h('span', { className: 'nib-chip nib-muted' }, pressStatus(item, t)),
               h('span', { className: 'nib-time', title: absolute(item.time, t) }, relative(item.time, t))),
             !open && sub && h('span', { className: 'nib-spoken' }, sub))),
+        item.read && !open && h('button', { type: 'button', className: 'nib-mark', title: t('markUnread'), 'aria-label': t('markUnread'), onClick: () => onMark(item, false) }, h(MarkUnreadIcon))),
         open && h('div', { className: 'nib-body' },
           item.text && item.text !== title && h('div', { className: 'nib-text' }, item.text),
           item.links.length > 0 && h('div', { className: 'nib-links' },
@@ -198,7 +214,7 @@ window.__ModuleLoader__.load({
             item.files.map(file => file.stored
               ? h('a', { key: file.name, href: api(`file?id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(file.name)}`), target: '_blank', rel: 'noopener' }, file.name)
               : h('span', { key: file.name, className: 'nib-meta' }, `${file.name} (${t('notStored', { reason: file.reason || '?' })})`))),
-          h(Actions, { item, t, ui }),
+          h(Actions, { item, t, ui, onMark }),
           h('div', { className: 'nib-meta' },
             item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
               item.routed.map(row => h('span', { key: row.destination, className: 'nib-route', title: row.detail || '' },
@@ -304,8 +320,10 @@ window.__ModuleLoader__.load({
       const [more, setMore] = useState(false)
       const [error, setError] = useState(null)
       const [open, setOpen] = useState(() => shared.linked)
-      const openRef = useRef(open)
-      openRef.current = open
+      // Rows shown under Unread during this visit stay on screen as they turn read, done or snoozed,
+      // so the list never moves under the person's finger; leaving the view (or tapping its tab again) lets them go.
+      const shown = useRef(new Set())
+      const [visit, setVisit] = useState(0)
       const [ui, setUi] = useState(null)
       useEffect(() => {
         let live = true
@@ -316,18 +334,14 @@ window.__ModuleLoader__.load({
       const load = useCallback(async (append) => {
         try {
           const params = new URLSearchParams()
-          if (filter === 'unread') params.set('unread', '1')
+          if (filter === 'unread') {
+            params.set('unread', '1')
+            if (shown.current.size > 0) params.set('keep', [...shown.current].join(','))
+          }
           if (append && items?.length) params.set('before', items[items.length - 1].id)
           const page = await call(`items?${params}`)
-          setItems(previous => {
-            if (append && previous) return [...previous, ...page.items]
-            // The open item stays where it was even when it no longer matches the filter (opening marks it read).
-            const kept = previous?.findIndex(row => row.id === openRef.current) ?? -1
-            if (kept < 0 || page.items.some(row => row.id === openRef.current)) return page.items
-            const next = [...page.items]
-            next.splice(Math.min(kept, next.length), 0, { ...previous[kept], read: true })
-            return next
-          })
+          if (filter === 'unread') for (const row of page.items) shown.current.add(row.id)
+          setItems(previous => (append && previous ? [...previous, ...page.items] : page.items))
           setMore(page.more)
           setError(null)
         } catch (reason) {
@@ -335,23 +349,29 @@ window.__ModuleLoader__.load({
         }
       }, [filter, items])
 
-      useEffect(() => { load(false) }, [filter, version])
+      useEffect(() => { load(false) }, [filter, version, visit])
+      const showView = key => {
+        shown.current = new Set()
+        if (key === filter) setVisit(n => n + 1)
+        else setFilter(key)
+      }
       useEffect(() => {
         if (!linked) return
-        setFilter('all')
+        showView('all')
         setOpen(linked)
         shared.linked = null
         call('read', { ids: [linked] }).then(changed, () => {})
         setTimeout(() => document.getElementById(`nib-${linked}`)?.scrollIntoView({ block: 'center' }), 300)
       }, [linked])
 
+      const mark = (item, read) => {
+        setItems(list => list.map(row => (row.id === item.id ? { ...row, read } : row)))
+        call('read', { ids: [item.id], read }).then(changed, reason => setError(reason.message))
+      }
       const toggle = item => {
         const next = open === item.id ? null : item.id
         setOpen(next)
-        if (next !== null && !item.read) {
-          setItems(list => list.map(row => (row.id === item.id ? { ...row, read: true } : row)))
-          call('read', { ids: [item.id] }).then(changed, () => {})
-        }
+        if (next !== null && !item.read) mark(item, true)
       }
       const markAll = () => call('read', { all: true }).then(changed, reason => setError(reason.message))
 
@@ -361,13 +381,13 @@ window.__ModuleLoader__.load({
             h('div', { className: 'nib-head' },
               h('h1', null, t('title'), unread > 0 && h('span', { className: 'nib-count' }, unread)),
               h('div', { className: 'nib-tabs', role: 'group' },
-                ['unread', 'all'].map(key => h('button', { key, type: 'button', className: 'nib-tab', 'aria-pressed': filter === key, onClick: () => setFilter(key) }, t(`filter.${key}`)))),
+                ['unread', 'all'].map(key => h('button', { key, type: 'button', className: 'nib-tab', 'aria-pressed': filter === key, onClick: () => showView(key) }, t(`filter.${key}`)))),
               h('button', { type: 'button', className: 'nib-btn', disabled: unread === 0, onClick: markAll }, t('markAll'))),
             h(PushControl, { t }),
             error && h('p', { className: 'nib-error', role: 'alert' }, t('error', { message: error })),
             items !== null && items.length === 0 && h('p', { className: 'nib-empty' }, t(filter === 'unread' ? 'empty.unread' : 'empty.all')),
             items !== null && h('ul', { className: 'nib-list' },
-              items.map(item => h(Item, { key: item.id, item, t, open: open === item.id, onToggle: toggle, ui }))),
+              items.map(item => h(Item, { key: item.id, item, t, open: open === item.id, onToggle: toggle, onMark: mark, ui }))),
             more && h('button', { type: 'button', className: 'nib-btn nib-more', onClick: () => load(true) }, t('loadMore')))))
     }
 

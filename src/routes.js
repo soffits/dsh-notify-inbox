@@ -4,8 +4,8 @@
  * answer is decided here, per request, from who is asking.
  *
  *   GET  /api/notify-inbox/summary                   unread count and newest time (badge)
- *   GET  /api/notify-inbox/items?unread=1&before=&limit=
- *   POST /api/notify-inbox/read                      { ids: [...] } or { all: true }
+ *   GET  /api/notify-inbox/items?unread=1&keep=&before=&limit=
+ *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
  *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press
  *   GET  /api/notify-inbox/file?id=&name=            a stored attachment
  *   GET  /api/notify-inbox/push/config               { publicKey }
@@ -24,6 +24,8 @@ import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
 export const PREFIX = '/api/notify-inbox'
 const MAX_BODY = 16 * 1024
 const PAGE = 50
+/** Most rows the Unread view keeps on screen after they turn read (ids in `keep`). */
+const KEEP_MAX = 200
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -99,7 +101,11 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     const params = new URL(request.url).searchParams
     const limit = Math.min(Math.max(Number(params.get('limit')) || PAGE, 1), 200)
     let { items } = await store.view(who.folders)
-    if (params.get('unread') === '1') items = items.filter(item => !item.read)
+    if (params.get('unread') === '1') {
+      // `keep` holds what the page already shows under Unread, so those rows stay put as they turn read.
+      const keep = new Set((params.get('keep') ?? '').split(',').filter(id => RECORD_ID_PATTERN.test(id)).slice(0, KEEP_MAX))
+      items = items.filter(item => !item.read || keep.has(item.id))
+    }
     const before = params.get('before')
     if (before) {
       const at = items.findIndex(item => item.id === before)
@@ -125,7 +131,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
       for (const person of who.folders) await store.markAllRead(person)
     } else if (Array.isArray(value.ids)) {
       const ids = value.ids.filter(id => typeof id === 'string').slice(0, 500)
-      for (const person of who.folders) await store.markRead(person, ids)
+      for (const person of who.folders) await store.setRead(person, ids, value.read !== false)
     } else {
       return json(400, { error: 'Send ids or all.' })
     }
@@ -140,7 +146,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     if (declared === undefined) return json(400, { error: 'This notification has no such button.' })
     if (!['done', 'snooze', 'event'].includes(declared.kind)) return json(400, { error: 'This button acts in the page.' })
     const result = await actions.press(record.person, record, declared, { until: value.until })
-    await store.markRead(record.person, [record.id])
+    await store.setRead(record.person, [record.id], true)
     return json(200, { press: result.event.press, published: result.published, matched: result.matched ?? 0 })
   })
 

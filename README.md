@@ -90,7 +90,7 @@ The page follows DSH's language. Its words live in `locale/<tag>.json` (`ui` for
 
 ## Files the plugin writes
 
-All under `dataDir`: `<person>/read.json` (read marks), `<person>/actions.jsonl` (presses), `.push/subscriptions.json` and `.push/cursor.json` (how far each inbox was pushed, so a restart doesn't push the backlog), and the VAPID key unless `vapidFile` says otherwise. It never rewrites `inbox.jsonl`.
+All under `dataDir`: `<person>/read.json` (read and unread marks), `<person>/actions.jsonl` (presses), `.push/subscriptions.json` and `.push/cursor.json` (how far each inbox was pushed, so a restart doesn't push the backlog), and the VAPID key unless `vapidFile` says otherwise. It never rewrites `inbox.jsonl`.
 
 ## Removing it
 

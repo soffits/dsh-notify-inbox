@@ -118,8 +118,13 @@ async function atomicWrite(path, value) {
   await rename(tmp, path)
 }
 
-/** Read marks: everything up to `readBefore` (ISO time) is read, plus the ids in `read`. */
+/**
+ * Read marks: everything up to `readBefore` (ISO time) is read, plus the ids in
+ * `read`, except the ids in `unread` (marked unread again after the watermark
+ * passed them).
+ */
 export function isRead(marks, record) {
+  if (marks.unread.includes(record.id)) return false
   return (marks.readBefore !== '' && record.time <= marks.readBefore) || marks.read.includes(record.id)
 }
 
@@ -164,9 +169,10 @@ export function createStore(dataDir) {
   async function marks(person) {
     try {
       const value = JSON.parse(await readFile(join(dataDir, person, READ), 'utf8'))
-      return { readBefore: text(value.readBefore), read: list(value.read).filter(id => typeof id === 'string') }
+      const ids = key => list(value[key]).filter(id => typeof id === 'string')
+      return { readBefore: text(value.readBefore), read: ids('read'), unread: ids('unread') }
     } catch {
-      return { readBefore: '', read: [] }
+      return { readBefore: '', read: [], unread: [] }
     }
   }
 
@@ -175,22 +181,35 @@ export function createStore(dataDir) {
     await atomicWrite(join(dataDir, person, READ), value)
   }
 
-  /** Mark some records read; ids that aren't this person's are ignored. */
-  async function markRead(person, ids) {
-    const known = new Set((await records(person)).records.map(record => record.id))
+  /**
+   * Mark some records read or unread; ids that aren't this person's are ignored.
+   * Each list keeps only what the watermark doesn't already say.
+   */
+  async function setRead(person, ids, value) {
+    const byId = new Map((await records(person)).records.map(record => [record.id, record]))
     const current = await marks(person)
-    const read = [...new Set([...current.read, ...ids.filter(id => known.has(id))])]
-    await saveMarks(person, { readBefore: current.readBefore, read })
+    const read = new Set(current.read)
+    const unread = new Set(current.unread)
+    for (const id of ids) {
+      const record = byId.get(id)
+      if (record === undefined) continue
+      const covered = current.readBefore !== '' && record.time <= current.readBefore
+      read.delete(id)
+      unread.delete(id)
+      if (value && !covered) read.add(id)
+      if (!value && covered) unread.add(id)
+    }
+    await saveMarks(person, { readBefore: current.readBefore, read: [...read], unread: [...unread] })
   }
 
-  /** Mark everything up to the newest record read; the per-id list drops what the watermark covers. */
+  /** Mark everything up to the newest record read; the per-id lists drop what the watermark covers. */
   async function markAllRead(person) {
     const all = (await records(person)).records
     if (all.length === 0) return
     const readBefore = all.reduce((latest, record) => (record.time > latest ? record.time : latest), '')
     const current = await marks(person)
     const byId = new Map(all.map(record => [record.id, record]))
-    await saveMarks(person, { readBefore, read: current.read.filter(id => byId.has(id) && byId.get(id).time > readBefore) })
+    await saveMarks(person, { readBefore, read: current.read.filter(id => byId.has(id) && byId.get(id).time > readBefore), unread: [] })
   }
 
   /** The records of these people, newest first, each with `read`. */
@@ -219,5 +238,5 @@ export function createStore(dataDir) {
     return undefined
   }
 
-  return { persons, records, marks, markRead, markAllRead, view, file }
+  return { persons, records, marks, setRead, markAllRead, view, file }
 }

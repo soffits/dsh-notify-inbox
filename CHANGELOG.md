@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Under Unread, a notification you open, mark done or snooze stays where it is, shown as read, until you leave the view or tap Unread again, so the list never moves under your finger. Mark all read works the same way.
+- Read notifications have a Mark unread button, in the row and in the open notification. It works on ones that Mark all read covered too.
+- A done or snoozed notification shows its state in the collapsed row.
+- On narrow screens the header wraps under the title instead of squeezing it.
+
 ## 0.2.0
 
 - Every word on the page comes from `locale/<tag>.json`, one file per language, picked up by what files exist; a missing key falls back to the primary language, then English. French joins English and Chinese.

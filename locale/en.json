@@ -9,6 +9,7 @@
     "filter.unread": "Unread",
     "filter.all": "All",
     "markAll": "Mark all read",
+    "markUnread": "Mark unread",
     "empty.unread": "Nothing unread.",
     "empty.all": "No notifications yet.",
     "loadMore": "Show older",

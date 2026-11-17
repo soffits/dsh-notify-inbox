@@ -98,6 +98,34 @@ test('read marks: one, all, the unread filter, and new records after mark-all st
   assert.equal((await call('read', { nothing: true })).status, 400)
 })
 
+test('mark unread works on its own and past the mark-all watermark; mark-all clears it again', async () => {
+  await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  await call('read', { ids: ['a1'] })
+  await call('read', { ids: ['a1'], read: false })
+  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a2', 'a1'])
+  await call('read', { all: true })
+  await call('read', { ids: ['a1'], read: false })
+  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a1'])
+  await call('read', { ids: ['a1'] })
+  assert.equal((await call('summary')).body.unread, 0)
+  await call('read', { ids: ['a2'], read: false })
+  await call('read', { all: true })
+  assert.equal((await call('summary')).body.unread, 0)
+})
+
+test('under Unread, rows the page already shows stay as they turn read, done or snoozed', async () => {
+  await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z' }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  await call('read', { ids: ['a1'] })
+  await call('action', { record: 'a2', action: 'done' })
+  const kept = (await call('items?unread=1&keep=a1,a2,nope/../x')).body.items
+  assert.deepEqual(kept.map(item => [item.id, item.read]), [['a3', false], ['a2', true], ['a1', true]])
+  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a3'])
+})
+
 test('bad lines are skipped and counted, a half-written line waits, a rewritten file is read again', async () => {
   await file('ana', record('a1'), 'not json', JSON.stringify({ id: '../x' }))
   await appendFile(join(dir, 'ana', 'inbox.jsonl'), JSON.stringify(record('a2')).slice(0, 20))
