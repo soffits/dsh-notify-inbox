@@ -44,8 +44,10 @@ window.__ModuleLoader__.load({
 .nib-heading h1{flex:0 1 auto;min-width:0;margin:0;font-size:20px;line-height:28px;font-weight:500}
 .nib-tools{display:flex;align-items:center;gap:8px}
 .nib-said{margin:0;font-size:15px;line-height:24px;overflow-wrap:anywhere}
-.nib-status{display:flex;flex-wrap:wrap;align-items:center;min-width:0;margin:2px 0 16px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:21px}
-.nib-status>*+*::before{content:'·';padding:0 6px}
+.nib-status{display:flex;flex-wrap:wrap;align-items:center;gap:0 16px;min-width:0;margin:2px 0 16px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:21px}
+.nib-counts>*+*::before{content:'·';padding:0 6px}
+.nib-counts b{font-weight:500;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.nib-counts b[data-group=needs-you]{color:var(--dsw-alias-state-business-primary)}
 .nib-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
 .nib-n{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
 .nib-group{display:flex;flex-direction:column;gap:4px;margin-bottom:24px}
@@ -58,11 +60,12 @@ window.__ModuleLoader__.load({
 .nib-line{display:flex;gap:12px;align-items:flex-start}
 .nib-main{flex:1;min-width:0}
 .nib-head{display:block;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.nib-titleLine{display:flex;align-items:center;gap:8px;min-width:0;min-height:30px}
-.nib-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:23px;color:var(--dsw-alias-label-secondary)}
+.nib-titleLine{display:flex;align-items:flex-start;gap:8px;min-width:0;padding-top:4px}
+.nib-titleLine>.uk-newDot{margin-top:8px}
+.nib-title{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:23px;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
 .nib-unread .nib-title,.nib-group[data-group=needs-you] .nib-title,.nib-group[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
-.nib-open .nib-title{white-space:normal;overflow-wrap:anywhere}
-.nib-when{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-caption)}
+.nib-open .nib-title{-webkit-line-clamp:unset}
+.nib-when{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:23px;color:var(--dsw-alias-label-caption)}
 .nib-sub{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:21px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
 .nib-done{display:flex;gap:6px;align-items:flex-start;font-size:13px;line-height:21px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
 .nib-done svg{flex:none;margin-top:3px;color:var(--dsw-alias-state-success-primary)}
@@ -418,7 +421,8 @@ window.__ModuleLoader__.load({
             summary?.line && h('p', { className: 'nib-said' }, said(summary.line.text, t)),
             h('div', { className: 'nib-status' },
               h(kit.LiveStatus, { status: stream, updatedAt: summary?.latest ?? undefined }),
-              GROUPS.filter(group => (groups[group] ?? 0) > 0).map(group => h('span', { key: group }, `${t(`group.${group}`)} ${groups[group]}`))),
+              total > 0 && h('span', { className: 'nib-counts' },
+                GROUPS.filter(group => (groups[group] ?? 0) > 0).map(group => h('span', { key: group }, `${t(`group.${group}`)} `, h('b', { 'data-group': group }, groups[group]))))),
             h('div', { className: 'nib-filters', role: 'group', 'aria-label': t('filter.label') },
               filters.map(([key, label, n]) => h(Pill, { key, active: view === key, 'aria-pressed': view === key, onClick: () => showView(key) },
                 label, n > 0 && h('span', { className: 'nib-n' }, n)))),
@@ -441,7 +445,6 @@ window.__ModuleLoader__.load({
 
     function SidebarIcon({ size }) {
       const unread = useShared(s => s.unread)
-      const kit = useShared(s => s.kit)
       return h('span', { className: 'nib-bell' },
         h(BellGlyph, { size }),
         unread > 0 && h('span', { className: 'nib-badge' }, unread > 99 ? '99+' : String(unread)))

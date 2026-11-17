@@ -166,6 +166,24 @@ export async function readFrom(path, offset) {
   }
 }
 
+const HEAD_BYTES = 256
+
+/** The first bytes of a file, as text (empty when it can't be read). */
+async function readHead(path, length) {
+  try {
+    const handle = await open(path, 'r')
+    try {
+      const buffer = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(buffer, 0, length, 0)
+      return buffer.subarray(0, bytesRead).toString('latin1')
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return ''
+  }
+}
+
 async function atomicWrite(path, value) {
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`
   await writeFile(tmp, JSON.stringify(value), { mode: 0o600 })
@@ -206,11 +224,14 @@ export function createStore(dataDir) {
       return { records: [], handled: [], bad: 0 }
     }
     let entry = cache.get(person)
-    if (entry === undefined || entry.ino !== info.ino || info.size < entry.offset) {
-      entry = { ino: info.ino, offset: 0, records: [], handled: [], bad: 0 }
+    // A file rewritten in place (same inode, someone removed a line by hand) starts differently.
+    const replaced = entry !== undefined && entry.head !== '' && (await readHead(path, entry.head.length)) !== entry.head
+    if (entry === undefined || entry.ino !== info.ino || info.size < entry.offset || replaced) {
+      entry = { ino: info.ino, offset: 0, head: '', records: [], handled: [], bad: 0 }
       cache.set(person, entry)
     }
     if (info.size > entry.offset) {
+      if (entry.offset === 0) entry.head = await readHead(path, HEAD_BYTES)
       const parsed = parseLines(await readFrom(path, entry.offset), person)
       entry.records.push(...parsed.records)
       entry.handled.push(...parsed.handled)

@@ -142,6 +142,8 @@ test('bad lines are skipped and counted, a half-written line waits, a rewritten 
   assert.equal(summary.problems.badLines, 2)
   await writeFile(join(dir, 'ana', 'inbox.jsonl'), `${JSON.stringify(record('a9'))}\n`)
   assert.deepEqual((await call('items')).body.items.map(item => item.id), ['a9'])
+  await writeFile(join(dir, 'ana', 'inbox.jsonl'), `${JSON.stringify(record('a7', { title: 'A much longer title than before, so the rewritten file is bigger' }))}\n${JSON.stringify(record('a8'))}\n`)
+  assert.deepEqual((await call('items')).body.items.map(item => item.id).sort(), ['a7', 'a8'], 'a file rewritten in place and grown is read again')
 })
 
 test('a step press is recorded as the person\'s go-ahead, per step button', async () => {
