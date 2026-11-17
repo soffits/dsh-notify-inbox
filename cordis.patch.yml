@@ -1,0 +1,9 @@
+# Bundle layer for @soffits/dsh-notify-inbox: one Host row serving the inbox
+# to the Web UI. Set dataDir (the folder your notification router files into)
+# and, for a DSH several people sign in to, people / peopleFile in a profile
+# override of this row.
+- insert:
+    - id: notify-inbox
+      name: '@soffits/dsh-notify-inbox'
+      config:
+        dataDir: ~/.dsh/notify-inbox
