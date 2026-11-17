@@ -143,7 +143,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
           }
         }
         write('retry: 5000\n: open\n\n')
-        const unlisten = changes.listen(who.mode === 'owner' ? null : who.folders, () => write(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`))
+        const unlisten = changes.listen(who.mode === 'owner' ? null : who.folders, () => write(`data: ${JSON.stringify({ type: 'change', at: new Date().toISOString() })}\n\n`))
         const beat = setInterval(() => write(': beat\n\n'), HEARTBEAT_MS)
         stop = () => {
           unlisten()

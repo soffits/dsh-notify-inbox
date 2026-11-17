@@ -16,7 +16,7 @@ export const DEFAULT_DOMAINS = {
   money: { icon: 'wallet' },
   bills: { icon: 'receipt' },
   orders: { icon: 'package' },
-  shopping: { icon: 'shopping-bag' },
+  shopping: { icon: 'shopping-cart' },
   health: { icon: 'heart-pulse' },
   medication: { icon: 'pill' },
   food: { icon: 'utensils' },
@@ -34,7 +34,7 @@ export const DEFAULT_DOMAINS = {
   upkeep: { icon: 'wrench' },
   system: { icon: 'server' },
   jobs: { icon: 'timer' },
-  test: { icon: 'flask-conical' },
+  test: { icon: 'terminal' },
 }
 
 /** The defaults with the configured entries on top; entries with an unknown tone keep only their icon. */

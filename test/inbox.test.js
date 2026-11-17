@@ -369,9 +369,9 @@ test('the events stream tells an open page when its own inbox changed, and only 
     assert.ok(await until(/: open/))
     await new Promise(resolve => setTimeout(resolve, 60))
     await file('bo', record('b2'))
-    assert.equal(await until(/event: change/, 200), false, "bo's change is not ana's news")
+    assert.equal(await until(/"type":"change"/, 200), false, "bo's change is not ana's news")
     await file('ana', record('a2'))
-    assert.ok(await until(/event: change/))
+    assert.ok(await until(/"type":"change"/))
   } finally {
     abort.abort()
     changes.stop()
