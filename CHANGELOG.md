@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- The buttons come from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions), installed as its own plugin, instead of a copy of the card board's chunk. "Ask" now opens a conversation with the notification attached as a card the person can remove and write beside; the sent message shows the same card, and the agent gets the notification as compact text with its id. Without the package the page works and shows no buttons.
+- The buttons' words moved to that package; the page's locale files keep only its own.
+
 ## 0.2.1
 
 - Under Unread, a notification you open, mark done or snooze stays where it is, shown as read, until you leave the view or tap Unread again, so the list never moves under your finger. Mark all read works the same way.

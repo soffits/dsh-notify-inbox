@@ -9,7 +9,7 @@ A DeepSeek Harness (DSH) plugin: a per-person notification inbox read from JSON-
 - `src/store.js`: reading `inbox.jsonl` incrementally (records and `type: handled` status lines), read marks.
 - `src/push.js`: subscriptions, cursor, pushing new records; `src/webpush.js`: RFC 8291 encryption and RFC 8292 VAPID on node:crypto; `src/sw.js`: the service worker (served as is).
 - `src/actions.js`: presses on buttons → action events (log + `cronJobs` service when present).
-- `client.js`: Web UI half in DSH's Client module format: sidebar entry with unread badge, the page, push control. `client.actions.js`: the action buttons, a copy of dsh-card-board's shared module (only `OWNER` differs); update both together.
+- `client.js`: Web UI half in DSH's Client module format: sidebar entry with unread badge, the page, push control. The buttons come from `@soffits/dsh-ui-actions` (`ctx.uiActions`, injected when installed): the page passes each notification as `about` and its own press call; the package owns the buttons' words and the chat card.
 
 ## Rules
 

@@ -82,7 +82,7 @@ window.__ModuleLoader__.load({
 
     // ---- shared state: the unread count and a version that bumps when anything changes ----
 
-    const shared = { unread: 0, version: 0, pollSeconds: 30, linked: null }
+    const shared = { unread: 0, version: 0, pollSeconds: 30, linked: null, ui: null }
     const listeners = new Set()
     const emit = () => { for (const listener of listeners) listener() }
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
@@ -143,10 +143,9 @@ window.__ModuleLoader__.load({
       return Date.now() - Date.parse(press.at) < PENDING_MS ? t('press.pending') : t('press.unhandled')
     }
 
-    // ---- the buttons: the shared action bar (client.actions.js, also used by the card board) ----
+    // ---- the buttons: @soffits/dsh-ui-actions (ctx.uiActions), shared with other plugin pages ----
 
-    let actionsModule
-    const loadActions = () => (actionsModule ??= require.async('./client.actions.js').catch(error => { actionsModule = undefined; throw error }))
+    const OWNER = '@soffits/dsh-notify-inbox'
 
     /** The server's view of each button's last press: pending, done or unhandled. */
     function pressStates(item) {
@@ -162,18 +161,19 @@ window.__ModuleLoader__.load({
     function Actions({ item, t, ui, onMark }) {
       const markUnread = item.read && h('button', { type: 'button', className: 'nib-btn', onClick: () => onMark(item, false) }, t('markUnread'))
       if (ui === null) return markUnread ? h('div', { className: 'nib-actions' }, markUnread) : null
-      const declared = item.actions.some(action => action.kind === 'chat') ? item.actions : [{ kind: 'chat', id: 'chat', payload: {} }, ...item.actions]
-      const chat = action => ui.startChat({
-        text: ui.chatText({ prompt: action.payload?.prompt ?? '', title: item.title || item.spoken, lines: (item.text || item.spoken).split('\n'),
-          context: { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined, links: item.links.length ? item.links : undefined } }),
-        session: action.payload?.session,
-      })
+      // What "Ask" attaches to the conversation: the notification as a card, its ids for the agent.
+      const about = {
+        source: OWNER,
+        title: item.title || item.spoken || item.text,
+        lines: [item.title && item.spoken !== item.title ? item.spoken : '', ...(item.text || '').split('\n'), ...item.links].filter(line => line && line !== item.title),
+        context: { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined },
+      }
       const onPress = async (action, extra) => {
         await call('action', { record: item.id, action: action.id, ...(extra?.until ? { until: extra.until } : {}) })
         changed()
       }
       const status = pressStatus(item, t)
-      return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: declared, states: pressStates(item), chat, onPress }),
+      return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: item.actions, states: pressStates(item), about, defaultChat: true, onPress }),
         markUnread,
         status && h('span', { className: 'nib-status' }, status))
     }
@@ -311,7 +311,7 @@ window.__ModuleLoader__.load({
 
     // ---- the page ----
 
-    function InboxPage({ translate: t, makeActions }) {
+    function InboxPage({ translate: t }) {
       const version = useShared(s => s.version)
       const unread = useShared(s => s.unread)
       const linked = useShared(s => s.linked)
@@ -324,12 +324,7 @@ window.__ModuleLoader__.load({
       // so the list never moves under the person's finger; leaving the view (or tapping its tab again) lets them go.
       const shown = useRef(new Set())
       const [visit, setVisit] = useState(0)
-      const [ui, setUi] = useState(null)
-      useEffect(() => {
-        let live = true
-        makeActions().then(made => { if (live) setUi(made) }, reason => { console.warn('notify-inbox: buttons unavailable', reason) })
-        return () => { live = false }
-      }, [])
+      const ui = useShared(s => s.ui)
 
       const load = useCallback(async (append) => {
         try {
@@ -391,13 +386,17 @@ window.__ModuleLoader__.load({
             more && h('button', { type: 'button', className: 'nib-btn nib-more', onClick: () => load(true) }, t('loadMore')))))
     }
 
+    function BellIcon({ size }) {
+      const stroke = { stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false' },
+        h('path', { d: 'M8 2.2c-2.3 0-3.9 1.8-3.9 4v2.3L3 10.4c-.2.4.1.9.5.9h9c.4 0 .7-.5.5-.9l-1.1-1.9V6.2c0-2.2-1.6-4-3.9-4Z', ...stroke }),
+        h('path', { d: 'M6.5 13.2c.3.7.9 1.1 1.5 1.1s1.2-.4 1.5-1.1', ...stroke }))
+    }
+
     function SidebarIcon({ size }) {
       const unread = useShared(s => s.unread)
-      const stroke = { stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }
       return h('span', { className: 'nib-icon' },
-        h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false' },
-          h('path', { d: 'M8 2.2c-2.3 0-3.9 1.8-3.9 4v2.3L3 10.4c-.2.4.1.9.5.9h9c.4 0 .7-.5.5-.9l-1.1-1.9V6.2c0-2.2-1.6-4-3.9-4Z', ...stroke }),
-          h('path', { d: 'M6.5 13.2c.3.7.9 1.1 1.5 1.1s1.2-.4 1.5-1.1', ...stroke })),
+        h(BellIcon, { size }),
         unread > 0 && h('span', { className: 'nib-badge' }, unread > 99 ? '99+' : String(unread)))
     }
 
@@ -425,13 +424,21 @@ window.__ModuleLoader__.load({
           return () => tag.remove()
         }, 'notify-inbox: styles')
 
-        const makeActions = () => loadActions().then(module => module.createActions({ React, ctx, t: (key, params) => t(`action.${key}`, params) }))
+        // The buttons, when @soffits/dsh-ui-actions is installed; without it the page shows no buttons.
+        ctx.inject(['uiActions'], scope => {
+          scope.effect(() => {
+            shared.ui = scope.uiActions
+            emit()
+            const unregister = scope.uiActions.registerSource({ id: OWNER, name: () => t('panel'), icon: BellIcon })
+            return () => { unregister(); shared.ui = null; emit() }
+          }, 'notify-inbox: buttons')
+        })
 
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL,
           locale: NS,
-          inject: () => ({ translate: t, makeActions }),
+          inject: () => ({ translate: t }),
         }, InboxPage))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

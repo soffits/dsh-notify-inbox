@@ -62,7 +62,9 @@ A line `{"v": 1, "type": "handled", "record": "<id>", "press": "<press id>", "ac
 
 ## Buttons
 
-Every notification gets **Ask about this**: it opens a new session with the notification quoted into the message box, ready to edit and send. Since the person sends it from the Web UI, the sign-in plugin records them as the sender.
+The buttons come from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions); install it as a plugin too (`dsh plugin --profile web add @soffits/dsh-ui-actions`). Without it the inbox works and shows no buttons.
+
+Every notification gets **Ask**: it opens a new session with the notification attached to the message box as a card (removable), and the person writes their own words beside it. The sent message shows the same card; the agent gets the notification as a short quote with its id. Since the person sends it from the Web UI, the sign-in plugin records them as the sender.
 
 Declared `actions` add more: `done`, `snooze` (a small picker: in an hour, this evening, tomorrow morning; or a fixed `payload.until`), `event` (anything else) and `link` (`payload.url`). A press on `done`, `snooze` or `event` is checked on the server (the record must be the caller's and declare that button), appended to `<dataDir>/<person>/actions.jsonl`, and published on the event channel `ui.action.<kind>` when [dsh-cron-jobs](https://github.com/soffits/dsh-cron-jobs) is installed, so a job listening there can act on it:
 

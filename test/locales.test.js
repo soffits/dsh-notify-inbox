@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import vm from 'node:vm'
 import { BASE, readLocales, tables } from '../src/locales.js'
 
 const dir = new URL('../locale/', import.meta.url)
@@ -20,13 +19,6 @@ test('every locale file has every key of the base language, with the same placeh
       assert.deepEqual(placeholders(file.ui[key]), placeholders(text), `${name} ${key} placeholders`)
     }
   }
-})
-
-test('the shared buttons find all their words under action.*', () => {
-  const window = { __ModuleLoader__: { load: registration => { window.registration = registration } } }
-  vm.runInNewContext(readFileSync(new URL('../client.actions.js', import.meta.url), 'utf8'), { window, document: undefined })
-  const base = read(`${BASE}.json`).ui
-  for (const key of window.registration.factory().KEYS) assert.equal(typeof base[`action.${key}`], 'string', key)
 })
 
 test('a new language is one file, no code change; missing keys fall back to the primary tag, then the base', async () => {
