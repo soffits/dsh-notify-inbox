@@ -1,0 +1,32 @@
+{
+ "package": "@soffits/dsh-ui-kit",
+ "service": "uiKit",
+ "version": "0.1.1",
+ "exports": [
+  "Chip",
+  "Countdown",
+  "History",
+  "ICON_NAMES",
+  "Icon",
+  "JustNow",
+  "LiveStatus",
+  "NewDot",
+  "Progress",
+  "RelativeDay",
+  "Ring",
+  "Spark",
+  "Suggested",
+  "TONES",
+  "Tile",
+  "TimeAgo",
+  "TimeUntil",
+  "Wash",
+  "formatDuration",
+  "formatRelativeDay",
+  "tagTone",
+  "toneColor",
+  "useEventStream",
+  "useNow",
+  "useWash"
+ ]
+}
