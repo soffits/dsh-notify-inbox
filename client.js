@@ -163,7 +163,7 @@ window.__ModuleLoader__.load({
       try {
         const summary = await call('summary')
         shared.pollSeconds = summary.pollSeconds || 30
-        const key = `${summary.unread}|${summary.latest}|${summary.total}`
+        const key = `${summary.unread}|${summary.latest}|${summary.total}|${summary.handled}`
         if (key !== lastSummary) {
           lastSummary = key
           shared.unread = summary.unread
@@ -206,7 +206,7 @@ window.__ModuleLoader__.load({
     // ---- the buttons: the shared action bar (client.actions.js, also used by the card board) ----
 
     let actionsModule
-    const loadActions = () => (actionsModule ??= require.async('./client.actions.js'))
+    const loadActions = () => (actionsModule ??= require.async('./client.actions.js').catch(error => { actionsModule = undefined; throw error }))
 
     /** The server's view of each button's last press: pending, done or unhandled. */
     function pressStates(item) {
@@ -371,7 +371,7 @@ window.__ModuleLoader__.load({
       const [ui, setUi] = useState(null)
       useEffect(() => {
         let live = true
-        makeActions(t('time.locale')).then(made => { if (live) setUi(made) }, reason => { if (live) setError(reason.message) })
+        makeActions(t('time.locale')).then(made => { if (live) setUi(made) }, reason => { console.warn('notify-inbox: buttons unavailable', reason) })
         return () => { live = false }
       }, [])
 

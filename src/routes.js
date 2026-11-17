@@ -89,7 +89,8 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
   const summary = handle(async (_request, who) => {
     const { items, bad } = await store.view(who.folders)
     const unread = items.filter(item => !item.read).length
-    return json(200, { mode: who.mode, person: who.person, unread, total: items.length, latest: items[0]?.time ?? null, problems: { badLines: bad }, pollSeconds })
+    const handled = items.reduce((sum, item) => sum + item.handled.length, 0)
+    return json(200, { mode: who.mode, person: who.person, unread, total: items.length, handled, latest: items[0]?.time ?? null, problems: { badLines: bad }, pollSeconds })
   })
 
   const list = handle(async (request, who) => {

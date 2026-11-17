@@ -254,6 +254,4 @@ function createActions({ React, ctx, locale = 'en', press }) {
   return { ActionBar, ActionButton, Icon, startChat, chatText, t }
 }
 
-if (typeof window !== 'undefined' && window.__ModuleLoader__) {
-  window.__ModuleLoader__.load({ id: `${OWNER}/client.actions.js`, factory: () => ({ createActions, chatText }) })
-}
+window.__ModuleLoader__.load({ id: OWNER, chunk: 'client.actions.js', factory: () => ({ createActions, chatText }) })
