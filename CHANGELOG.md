@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- A new page, built from DSH's own components and the shared [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit), which is now required. Notifications are grouped as Needs you, Live, Handled and To know, with the counts on top, an optional summary line (`summary.json`) and each domain's icon on a tinted tile (`domains` setting). [docs/ui.md](docs/ui.md) lists what is DSH's and what is the plugin's own.
+- Records may carry `attention`, `thread`, `live` and `handled`. Without `attention`, interrupts and notifications with done or snooze buttons need you and the rest is to know. A needs-you item marked done moves to Handled, a snoozed one waits under To know, a live item drops to To know when its time is over.
+- Notifications with the same `thread` are one item with their history beneath; a live thread's newest notification replaces the item in place.
+- New notifications and changes show up while the page is open, through `GET /api/notify-inbox/events` (Server-Sent Events), with a short cue on what changed. The page polls while the stream is down.
+- The filters are Needs you and All (Unread is gone: unread items carry a dot). Items stay where they first showed until you leave the view. Mark unread is in the opened item. Push settings moved into the ⋯ menu.
+- An inbox file rewritten in place is read again even when it grew.
+- Needs DSH 0.2.2-rc.1 or later.
 ## 0.4.0
 
 - Suggested next steps: a notification's `step` actions show as their own buttons (from @soffits/dsh-ui-actions 0.2.0). A tap is recorded here like done and snooze, as the event `ui.action.step` with who pressed it, then the step is sent to the assistant; the row says "Started".
