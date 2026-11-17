@@ -6,14 +6,11 @@
   "ui": {
     "panel": "收件箱",
     "title": "收件箱",
-    "filter.unread": "未读",
     "filter.all": "全部",
     "markAll": "全部已读",
     "markUnread": "标为未读",
-    "empty.unread": "没有未读通知。",
     "empty.all": "还没有通知。",
     "loadMore": "更早的",
-    "urgent": "紧急",
     "test": "测试",
     "alsoSent": "同时发到",
     "notSent": "没有发到别处",
@@ -26,7 +23,6 @@
     "press.started": "已开始",
     "push.title": "本设备的通知",
     "push.on": "已开启",
-    "push.off": "未开启",
     "push.enable": "开启",
     "push.disable": "关闭",
     "push.test": "发一条测试",
@@ -37,6 +33,18 @@
     "error": "加载失败：{message}",
     "time.locale": "zh-CN",
     "push.testTitle": "收件箱",
-    "push.testBody": "这台设备能收到通知了。"
+    "push.testBody": "这台设备能收到通知了。",
+    "filter.label": "显示",
+    "group.needs-you": "待你处理",
+    "group.live": "进行中",
+    "group.handled": "已处理",
+    "group.info": "知会",
+    "empty.needs-you": "现在没有要你处理的事。",
+    "moved.done": "你已标记为完成。",
+    "moved.ended": "已结束",
+    "more": "更多",
+    "push.off": "已关闭",
+    "push.unavailable": "这里不可用",
+    "kitMissing": "这个页面需要 @soffits/dsh-ui-kit 插件。"
   }
 }

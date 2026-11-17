@@ -13,7 +13,15 @@
   "bugs": {
     "url": "https://github.com/soffits/dsh-notify-inbox/issues"
   },
-  "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "notifications", "inbox", "web-push", "pwa"],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "notifications",
+    "inbox",
+    "web-push",
+    "pwa"
+  ],
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
@@ -22,7 +30,17 @@
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
-  "files": ["src", "client.js", "index.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": [
+    "src",
+    "client.js",
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -32,6 +50,7 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-locale",
+        "@soffits/dsh-ui-kit",
         "@soffits/dsh-ui-actions",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-sidebar"
