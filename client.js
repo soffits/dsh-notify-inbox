@@ -352,6 +352,17 @@ window.__ModuleLoader__.load({
       // view (or tapping its filter again) lets them go.
       const placed = useRef(new Map())
       const [visit, setVisit] = useState(0)
+      /** Remember where items first showed: the page's first items in order, later arrivals on top, older pages below. */
+      const place = (rows, append) => {
+        const ranks = [...placed.current.values()].map(spot => spot.rank)
+        let top = Math.min(0, ...ranks)
+        let bottom = Math.max(-1, ...ranks)
+        const fresh = placed.current.size === 0 || append
+        for (const row of fresh ? rows : [...rows].reverse()) {
+          if (placed.current.has(row.key)) continue
+          placed.current.set(row.key, { group: row.group, rank: fresh ? ++bottom : --top })
+        }
+      }
       const stream = kit.useEventStream('api/notify-inbox/events', changed)
 
       const load = useCallback(async append => {
@@ -363,7 +374,7 @@ window.__ModuleLoader__.load({
           }
           if (append && items?.length) params.set('before', items[items.length - 1].key)
           const page = await call(`items?${params}`)
-          for (const row of page.items) if (!placed.current.has(row.key)) placed.current.set(row.key, row.group)
+          place(page.items, append)
           setItems(previous => (append && previous ? [...previous, ...page.items] : page.items))
           setMore(page.more)
           setError(null)
@@ -407,7 +418,9 @@ window.__ModuleLoader__.load({
       const domains = summary?.domains ?? {}
       const total = summary?.total ?? 0
       const byGroup = new Map(GROUPS.map(group => [group, []]))
-      for (const item of items ?? []) byGroup.get(placed.current.get(item.key) ?? item.group)?.push(item)
+      for (const item of items ?? []) byGroup.get(placed.current.get(item.key)?.group ?? item.group)?.push(item)
+      const rank = item => placed.current.get(item.key)?.rank ?? 0
+      for (const list of byGroup.values()) list.sort((a, b) => rank(a) - rank(b))
       const filters = [['needs-you', t('group.needs-you'), groups['needs-you'] ?? 0], ['all', t('filter.all'), total]]
 
       return h('div', { className: 'nib-page' },
