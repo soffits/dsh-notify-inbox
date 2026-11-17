@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useCallback, useSyncExternalStore } = React
+    const { useState, useEffect, useCallback, useRef, useSyncExternalStore } = React
 
     const NS = 'dsh-notify-inbox'
     const PANEL = 'dsh-notify-inbox'
@@ -137,6 +137,7 @@ window.__ModuleLoader__.load({
 .nib-more{margin:12px auto 0;display:flex}
 .nib-icon{position:relative;display:inline-flex}
 .nib-badge{position:absolute;top:-5px;right:-8px;min-width:14px;height:14px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--dsw-alias-state-error-primary);color:#fff;font-size:9px;font-weight:600;line-height:14px;text-align:center;pointer-events:none}
+@media (width<=640px),(pointer:coarse){.nib-btn,.nib-tab,.nib-page .ua-btn{min-height:40px;min-width:40px}.nib-tab{padding-inline:14px}.nib-tabs{border-radius:12px}}
 @media (width<=640px){.nib-content{padding-inline:12px}.nib-head{padding-top:16px}.nib-body{margin-left:0}.nib-item{padding:10px 8px}}
 `
 
@@ -368,6 +369,8 @@ window.__ModuleLoader__.load({
       const [more, setMore] = useState(false)
       const [error, setError] = useState(null)
       const [open, setOpen] = useState(() => shared.linked)
+      const openRef = useRef(open)
+      openRef.current = open
       const [ui, setUi] = useState(null)
       useEffect(() => {
         let live = true
@@ -381,7 +384,15 @@ window.__ModuleLoader__.load({
           if (filter === 'unread') params.set('unread', '1')
           if (append && items?.length) params.set('before', items[items.length - 1].id)
           const page = await call(`items?${params}`)
-          setItems(previous => (append && previous ? [...previous, ...page.items] : page.items))
+          setItems(previous => {
+            if (append && previous) return [...previous, ...page.items]
+            // The open item stays where it was even when it no longer matches the filter (opening marks it read).
+            const kept = previous?.findIndex(row => row.id === openRef.current) ?? -1
+            if (kept < 0 || page.items.some(row => row.id === openRef.current)) return page.items
+            const next = [...page.items]
+            next.splice(Math.min(kept, next.length), 0, { ...previous[kept], read: true })
+            return next
+          })
           setMore(page.more)
           setError(null)
         } catch (reason) {

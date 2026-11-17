@@ -34,3 +34,15 @@ test('the client entry registers under the package name and asks for the chunk b
   assert.equal(registration.chunk, undefined)
   assert.match(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), /require\.async\('\.\/client\.actions\.js'\)/)
 })
+
+test('two plugins\' copies of the actions chunk load in one page without colliding', () => {
+  // DSH runs chunks as classic scripts in one global scope; a top-level const in two copies would throw.
+  const registrations = []
+  const context = vm.createContext({ window: { __ModuleLoader__: { load: registration => registrations.push(registration) } }, document: undefined })
+  const source = readFileSync(new URL('../client.actions.js', import.meta.url), 'utf8')
+  const other = source.replace(`const OWNER = '${pkg.name}'`, "const OWNER = '@example/other-plugin'")
+  assert.notEqual(other, source)
+  vm.runInContext(source, context)
+  vm.runInContext(other, context)
+  assert.deepEqual(registrations.map(r => r.id), [pkg.name, '@example/other-plugin'])
+})

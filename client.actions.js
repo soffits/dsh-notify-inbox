@@ -18,6 +18,7 @@
  * UI's own workspace service (so the person sends it themselves, signed in as
  * themselves), and link opens the URL.
  */
+(() => {
 const OWNER = '@soffits/dsh-notify-inbox'
 
 const WORDS = {
@@ -255,3 +256,4 @@ function createActions({ React, ctx, locale = 'en', press }) {
 }
 
 window.__ModuleLoader__.load({ id: OWNER, chunk: 'client.actions.js', factory: () => ({ createActions, chatText }) })
+})()
