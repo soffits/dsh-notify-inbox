@@ -3,8 +3,9 @@
  * browser first and a `requestIdentity` provider sees the request; every
  * answer is decided here, per request, from who is asking.
  *
- *   GET  /api/notify-inbox/summary                   unread count and newest time (badge)
- *   GET  /api/notify-inbox/items?unread=1&keep=&before=&limit=
+ *   GET  /api/notify-inbox/summary                   counts per group, unread, the summary line, the domain map
+ *   GET  /api/notify-inbox/items?view=needs-you&keep=&before=&limit=
+ *   GET  /api/notify-inbox/events                    text/event-stream: a notice whenever the caller's inbox changed
  *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
  *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press
  *   GET  /api/notify-inbox/file?id=&name=            a stored attachment
@@ -21,12 +22,15 @@ import { extname } from 'node:path'
 import { viewerOf } from './access.js'
 import { EMITTING } from './actions.js'
 import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
+import { buildItems, countItems } from './view.js'
 
 export const PREFIX = '/api/notify-inbox'
 const MAX_BODY = 16 * 1024
 const PAGE = 50
-/** Most rows the Unread view keeps on screen after they turn read (ids in `keep`). */
+/** Most items a filtered view keeps on screen after they leave it (keys in `keep`). */
 const KEEP_MAX = 200
+const ITEM_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
+const HEARTBEAT_MS = 25 * 1000
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -63,9 +67,12 @@ async function body(request) {
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
  * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag
+ * @param {ReturnType<import('./changes.js').createChanges>} options.changes
+ * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
+ * @param {number} options.summaryHours - how long a summary line is shown
  * @param {number} options.pollSeconds
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), pollSeconds }) {
+export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours, pollSeconds }) {
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
     const viewer = await viewerOf(people, identity())
@@ -91,29 +98,74 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     return items.map(item => ({ ...item, presses: byPerson.get(item.person)?.get(item.id) ?? [] }))
   }
 
+  /** The caller's items, folded and grouped as of now. */
+  async function itemsOf(who) {
+    const { items: records, bad } = await store.view(who.folders)
+    return { items: buildItems(records, Date.now()), bad }
+  }
+
   const summary = handle(async (_request, who) => {
-    const { items, bad } = await store.view(who.folders)
-    const unread = items.filter(item => !item.read).length
-    const handled = items.reduce((sum, item) => sum + item.handled.length, 0)
-    return json(200, { mode: who.mode, person: who.person, unread, total: items.length, handled, latest: items[0]?.time ?? null, problems: { badLines: bad }, pollSeconds })
+    const [{ items, bad }, line] = await Promise.all([itemsOf(who), store.summaryLine(who.folders, summaryHours)])
+    const { groups, unread } = countItems(items)
+    const latest = items.reduce((newest, item) => (newest === null || item.time > newest ? item.time : newest), null)
+    return json(200, { mode: who.mode, person: who.person, unread, groups, total: items.length, latest, line, domains, problems: { badLines: bad }, pollSeconds })
   })
 
   const list = handle(async (request, who) => {
     const params = new URL(request.url).searchParams
     const limit = Math.min(Math.max(Number(params.get('limit')) || PAGE, 1), 200)
-    let { items } = await store.view(who.folders)
-    if (params.get('unread') === '1') {
-      // `keep` holds what the page already shows under Unread, so those rows stay put as they turn read.
-      const keep = new Set((params.get('keep') ?? '').split(',').filter(id => RECORD_ID_PATTERN.test(id)).slice(0, KEEP_MAX))
-      items = items.filter(item => !item.read || keep.has(item.id))
+    let { items } = await itemsOf(who)
+    if (params.get('view') === 'needs-you') {
+      // `keep` holds what the page already shows in this view, so those items stay put as they leave it.
+      const keep = new Set((params.get('keep') ?? '').split(',').filter(key => ITEM_KEY.test(key)).slice(0, KEEP_MAX))
+      items = items.filter(item => item.group === 'needs-you' || keep.has(item.key))
     }
     const before = params.get('before')
     if (before) {
-      const at = items.findIndex(item => item.id === before)
+      const at = items.findIndex(item => item.key === before)
       items = at < 0 ? [] : items.slice(at + 1)
     }
     const page = items.slice(0, limit)
     return json(200, { items: await withPresses(who, page), more: items.length > limit })
+  })
+
+  /** A notice per change, a comment every 25 s so proxies keep the stream open; ends when the page goes. */
+  const events = handle(async (request, who) => {
+    const encoder = new TextEncoder()
+    let stop = () => {}
+    const stream = new ReadableStream({
+      start(controller) {
+        const write = chunk => {
+          try {
+            controller.enqueue(encoder.encode(chunk))
+          } catch {
+            stop()
+          }
+        }
+        write('retry: 5000\n: open\n\n')
+        const unlisten = changes.listen(who.mode === 'owner' ? null : who.folders, () => write(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`))
+        const beat = setInterval(() => write(': beat\n\n'), HEARTBEAT_MS)
+        stop = () => {
+          unlisten()
+          clearInterval(beat)
+        }
+        request.signal?.addEventListener('abort', () => {
+          stop()
+          try {
+            controller.close()
+          } catch {
+            // Already closed.
+          }
+        }, { once: true })
+      },
+      cancel() {
+        stop()
+      },
+    })
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'private, no-cache, no-transform', 'x-accel-buffering': 'no', 'x-content-type-options': 'nosniff' },
+    })
   })
 
   /** The record with this id the caller may see, or undefined. */
@@ -204,6 +256,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
   return [
     get('/summary', summary),
     get('/items', list),
+    get('/events', events),
     post('/read', read),
     post('/action', action),
     get('/file', file),

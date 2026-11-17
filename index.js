@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { createPeople, expandHome } from './src/access.js'
 import { createActions } from './src/actions.js'
+import { createChanges } from './src/changes.js'
+import { TONES, domainMap } from './src/domains.js'
 import { createPush } from './src/push.js'
 import { createRoutes } from './src/routes.js'
 import { createStore } from './src/store.js'
@@ -38,13 +40,20 @@ export const Config = z.object({
     .description('Where the Web Push (VAPID) key pair is kept; made on first start, mode 600. Default: .push/vapid.json in dataDir.'),
   vapidSubject: z.string().default('mailto:admin@example.invalid')
     .description('A mailto: or https: contact that push services can reach about this server.'),
+  domains: z.dict(z.object({
+    icon: z.string().description('A Lucide icon name, such as plane or heart-pulse.'),
+    tone: z.union([...TONES]).description('A colour this domain keeps wherever it shows. Usually left out: the group gives the colour.'),
+  })).default({})
+    .description('How each domain (the record\'s domain field) is drawn, on top of the built-in defaults (mail, money, health, travel, home...).'),
+  summaryHours: z.natural().min(1).max(168).default(12)
+    .description('How long the summary line (<dataDir>/<person>/summary.json) is shown after it was written.'),
   pollSeconds: z.natural().min(2).max(3600).default(5)
     .description('How often new records are looked for (to push them), and how often an open page refreshes its count (at least 15 s).'),
 })
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, pollSeconds: number }} config
+ * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, domains: Record<string, { icon: string, tone?: string }>, summaryHours: number, pollSeconds: number }} config
  */
 export function apply(ctx, config) {
   const logger = ctx.logger('notify-inbox')
@@ -71,7 +80,16 @@ export function apply(ctx, config) {
   const actions = createActions({ dataDir, events: () => ctx.get('cronJobs'), warn })
   const pollSeconds = config.pollSeconds ?? 5
   const strings = readLocales(fileURLToPath(new URL('./locale/', import.meta.url))).then(tables)
-  const routes = createRoutes({ store, people, push, actions, identity: () => ctx.get('requestIdentity'), serviceWorker, strings: () => strings, pollSeconds: Math.max(pollSeconds, 15) })
+  const changes = createChanges({ dataDir, persons: () => store.persons() })
+  const routes = createRoutes({
+    store, people, push, actions, changes,
+    identity: () => ctx.get('requestIdentity'),
+    serviceWorker,
+    strings: () => strings,
+    domains: domainMap(config.domains ?? {}),
+    summaryHours: config.summaryHours ?? 12,
+    pollSeconds: Math.max(pollSeconds, 15),
+  })
   for (const route of routes) ctx.connection.fetch.register(route)
 
   let stopped = false
@@ -88,6 +106,7 @@ export function apply(ctx, config) {
   ctx.on('dispose', () => {
     stopped = true
     clearTimeout(timer)
+    changes.stop()
   })
   logger.info(`inbox at ${dataDir} (${people.enabled ? 'per person' : 'single owner'})`)
 }

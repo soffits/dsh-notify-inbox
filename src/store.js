@@ -5,6 +5,7 @@
  *   <dataDir>/<person>/inbox.jsonl      one record per line; written by the router only
  *   <dataDir>/<person>/files/<id>/<name> attachments the router copied in
  *   <dataDir>/<person>/read.json        read marks; written by this plugin only
+ *   <dataDir>/<person>/summary.json     the line shown above the items; written by the router's side
  *
  * Records are re-read incrementally: only the bytes appended since the last
  * look are parsed, and the whole file again when it shrank or was replaced
@@ -18,18 +19,62 @@ export const PERSON_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 export const RECORD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
 const INBOX = 'inbox.jsonl'
 const READ = 'read.json'
+const SUMMARY = 'summary.json'
 
 const text = value => (typeof value === 'string' ? value : '')
 const list = value => (Array.isArray(value) ? value : [])
 /** Text a person reads: a string, or a map from language tag to text (the page picks the language). */
 const words = value => (typeof value === 'string' ? value : value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(v => typeof v === 'string') ? value : '')
 
+export const GROUPS = ['needs-you', 'live', 'handled', 'info']
+const ASKING = ['done', 'snooze']
+const MAX_THREAD = 120
+
+const isoTime = value => {
+  const at = Date.parse(text(value))
+  return Number.isNaN(at) ? undefined : new Date(at).toISOString()
+}
+
+/** `live` as `{ until?, progress?: { from, to } }`, or null. */
+function liveOf(raw) {
+  if (raw === true) return {}
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out = {}
+  const until = isoTime(raw.until)
+  if (until !== undefined) out.until = until
+  const from = isoTime(raw.progress?.from)
+  const to = isoTime(raw.progress?.to)
+  if (from !== undefined && to !== undefined && from < to) out.progress = { from, to }
+  return out
+}
+
+/** `handled` as `{ text, at? }`, or null. */
+function handledOf(raw) {
+  const value = typeof raw === 'string' ? { text: raw } : raw
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || text(value.text).trim() === '') return null
+  const at = isoTime(value.at)
+  return at === undefined ? { text: value.text.trim() } : { text: value.text.trim(), at }
+}
+
+/**
+ * The group a record belongs in. A writer usually says (`attention`); for a record that doesn't,
+ * the same default the router documents: handled, then live, then needs-you for an interrupt or a
+ * record with done or snooze buttons, else info.
+ */
+export function attentionOf(record) {
+  if (GROUPS.includes(record.attention)) return record.attention
+  if (record.handled !== null) return 'handled'
+  if (record.live !== null) return 'live'
+  if (record.lane === 'interrupt' || record.actions.some(action => ASKING.includes(action.kind))) return 'needs-you'
+  return 'info'
+}
+
 /** A record as the page gets it, or undefined when the line is not one. */
 export function normalize(raw, person) {
   if (typeof raw !== 'object' || raw === null || !RECORD_ID_PATTERN.test(text(raw.id))) return undefined
   const time = Date.parse(text(raw.time))
   if (Number.isNaN(time)) return undefined
-  return {
+  const record = {
     id: raw.id,
     person,
     time: new Date(time).toISOString(),
@@ -53,6 +98,10 @@ export function normalize(raw, person) {
       label: words(action.label) || undefined,
       payload: typeof action.payload === 'object' && action.payload !== null && !Array.isArray(action.payload) ? action.payload : {},
     })),
+    attention: text(raw.attention),
+    thread: text(raw.thread).trim().slice(0, MAX_THREAD),
+    live: liveOf(raw.live),
+    handled: handledOf(raw.handled),
     test: raw.test === true,
     push: raw.push !== false,
     routed: list(raw.routed).filter(row => typeof row?.destination === 'string').map(row => ({
@@ -62,6 +111,9 @@ export function normalize(raw, person) {
       detail: text(row.detail) || undefined,
     })),
   }
+  record.attention = attentionOf(record)
+  if (record.live === null && record.attention === 'live') record.live = {}
+  return record
 }
 
 /** A "this press was handled" line the router appends after acting on a press, or undefined. */
@@ -214,7 +266,7 @@ export function createStore(dataDir) {
     await saveMarks(person, { readBefore, read: current.read.filter(id => byId.has(id) && byId.get(id).time > readBefore), unread: [] })
   }
 
-  /** The records of these people, newest first, each with `read`. */
+  /** The records of these people, newest first, each with `read` and the `outcomes` of presses on it. */
   async function view(people) {
     const out = []
     let bad = 0
@@ -223,10 +275,31 @@ export function createStore(dataDir) {
       bad += skipped
       const byRecord = new Map()
       for (const status of handled) byRecord.set(status.record, [...(byRecord.get(status.record) ?? []), status])
-      for (const record of rows) out.push({ ...record, read: isRead(marked, record), handled: byRecord.get(record.id) ?? [] })
+      for (const record of rows) out.push({ ...record, read: isRead(marked, record), outcomes: byRecord.get(record.id) ?? [] })
     }
     out.sort((a, b) => (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
     return { items: out, bad }
+  }
+
+  /**
+   * The newest summary line of these people (`<person>/summary.json`, `{ text, at }`, written by
+   * whatever keeps the inbox), or null when there is none or it is older than `maxHours`.
+   */
+  async function summaryLine(people, maxHours, now = Date.now()) {
+    let best = null
+    for (const person of people) {
+      let value
+      try {
+        value = JSON.parse(await readFile(join(dataDir, person, SUMMARY), 'utf8'))
+      } catch {
+        continue
+      }
+      const said = words(value?.text)
+      const at = isoTime(value?.at)
+      if (said === '' || at === undefined || now - Date.parse(at) > maxHours * 3600 * 1000) continue
+      if (best === null || at > best.at) best = { text: said, at }
+    }
+    return best
   }
 
   /** Where a stored attachment lives, or undefined. */
@@ -240,5 +313,5 @@ export function createStore(dataDir) {
     return undefined
   }
 
-  return { persons, records, marks, setRead, markAllRead, view, file }
+  return { persons, records, marks, setRead, markAllRead, view, summaryLine, file }
 }

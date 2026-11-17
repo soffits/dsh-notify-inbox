@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { createDecipheriv, createECDH, hkdfSync } from 'node:crypto'
 import { createPeople } from '../src/access.js'
 import { createActions } from '../src/actions.js'
+import { createChanges } from '../src/changes.js'
+import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'
 import { createRoutes } from '../src/routes.js'
 import { createStore } from '../src/store.js'
@@ -40,7 +42,8 @@ function setup({ mapping = true, provider = true, events } = {}) {
   })
   const emitted = []
   const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
-  const routes = createRoutes({ store, people, push, actions, identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', pollSeconds: 30 })
+  const changes = createChanges({ dataDir: dir, persons: () => store.persons(), intervalMs: 20 })
+  const routes = createRoutes({ store, people, push, actions, changes, identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, pollSeconds: 30 })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -50,7 +53,7 @@ function setup({ mapping = true, provider = true, events } = {}) {
     const type = response.headers.get('content-type') ?? ''
     return { status: response.status, body: type.includes('json') ? await response.json() : await response.text(), headers: response.headers }
   }
-  return { as, call, store, push, pushes, emitted }
+  return { as, call, store, push, pushes, emitted, changes, byPath }
 }
 
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'notify-inbox-')) })
@@ -85,16 +88,18 @@ test('a single-owner DSH sees every folder merged', async () => {
   assert.deepEqual((await call('items')).body.items.map(item => item.id), ['b1', 'a1'])
 })
 
-test('read marks: one, all, the unread filter, and new records after mark-all stay unread', async () => {
+const unreadIds = async call => (await call('items')).body.items.filter(item => !item.read).map(item => item.id)
+
+test('read marks: one, all, and new records after mark-all stay unread', async () => {
   await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }))
   const { as, call } = setup()
   as(ANA_SUB)
   await call('read', { ids: ['a1'] })
-  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a2'])
+  assert.deepEqual(await unreadIds(call), ['a2'])
   await call('read', { all: true })
   assert.equal((await call('summary')).body.unread, 0)
   await file('ana', record('a3', { time: '2026-11-17T18:00:00Z' }))
-  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a3'])
+  assert.deepEqual(await unreadIds(call), ['a3'])
   assert.equal((await call('read', { nothing: true })).status, 400)
 })
 
@@ -104,10 +109,10 @@ test('mark unread works on its own and past the mark-all watermark; mark-all cle
   as(ANA_SUB)
   await call('read', { ids: ['a1'] })
   await call('read', { ids: ['a1'], read: false })
-  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a2', 'a1'])
+  assert.deepEqual(await unreadIds(call), ['a2', 'a1'])
   await call('read', { all: true })
   await call('read', { ids: ['a1'], read: false })
-  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a1'])
+  assert.deepEqual(await unreadIds(call), ['a1'])
   await call('read', { ids: ['a1'] })
   assert.equal((await call('summary')).body.unread, 0)
   await call('read', { ids: ['a2'], read: false })
@@ -115,15 +120,16 @@ test('mark unread works on its own and past the mark-all watermark; mark-all cle
   assert.equal((await call('summary')).body.unread, 0)
 })
 
-test('under Unread, rows the page already shows stay as they turn read, done or snoozed', async () => {
-  await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z' }))
+test('under Needs you, items the page already shows stay as they are done or snoozed', async () => {
+  await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }))
   const { as, call } = setup()
   as(ANA_SUB)
-  await call('read', { ids: ['a1'] })
-  await call('action', { record: 'a2', action: 'done' })
-  const kept = (await call('items?unread=1&keep=a1,a2,nope/../x')).body.items
-  assert.deepEqual(kept.map(item => [item.id, item.read]), [['a3', false], ['a2', true], ['a1', true]])
-  assert.deepEqual((await call('items?unread=1')).body.items.map(item => item.id), ['a3'])
+  const pressed = await call('action', { record: 'a2', action: 'done' })
+  await file('ana', { v: 1, type: 'handled', record: 'a2', press: pressed.body.press, action: 'done', result: 'done', time: '2026-11-17T16:01:00Z' })
+  const kept = (await call('items?view=needs-you&keep=a1,a2,nope/../x')).body.items
+  assert.deepEqual(kept.map(item => [item.id, item.group]), [['a1', 'needs-you'], ['a2', 'handled']])
+  assert.deepEqual((await call('items?view=needs-you')).body.items.map(item => item.id), ['a1'])
+  assert.deepEqual((await call('items')).body.items.map(item => [item.id, item.group]), [['a1', 'needs-you'], ['a2', 'handled'], ['a3', 'info']])
 })
 
 test('bad lines are skipped and counted, a half-written line waits, a rewritten file is read again', async () => {
@@ -171,10 +177,12 @@ test('a done press becomes an action event, is logged, and shows handled once th
   let [item] = (await call('items')).body.items
   assert.equal(item.read, true)
   assert.equal(item.presses[0].press, event.data.press)
-  assert.deepEqual(item.handled, [])
+  assert.deepEqual(item.outcomes, [])
+  assert.equal(item.group, 'needs-you')
   await file('ana', { v: 1, type: 'handled', record: 'a1', press: event.data.press, action: 'done', result: 'done', time: '2026-11-17T15:01:00Z' })
   ;[item] = (await call('items')).body.items
-  assert.equal(item.handled[0].result, 'done')
+  assert.equal(item.outcomes[0].result, 'done')
+  assert.deepEqual([item.group, item.moved], ['handled', 'done'])
   assert.equal((await call('summary')).body.total, 1, 'a status line is not a record')
 })
 
@@ -274,4 +282,98 @@ test('the service worker is served as JavaScript', async () => {
   const sw = await call('sw.js')
   assert.equal(sw.status, 200)
   assert.match(sw.headers.get('content-type'), /javascript/)
+})
+
+test('a thread is one item: the newest on top, the older ones as its history, read only when all are', async () => {
+  await file('ana',
+    record('m1', { time: '2026-11-17T15:00:00Z', thread: 'todo-42', title: 'Reminder', spoken: 'Today, left side' }),
+    record('x1', { time: '2026-11-17T16:00:00Z', actions: [] }),
+    record('m2', { time: '2026-11-17T18:30:00Z', thread: 'todo-42', title: 'Still open', spoken: 'Second reminder' }))
+  await file('bo', record('b1', { thread: 'todo-42' }))
+  const { as, call } = setup({ mapping: false, provider: false })
+  as(null)
+  const items = (await call('items')).body.items
+  const thread = items.find(item => item.thread === 'todo-42' && item.person === 'ana')
+  assert.equal(thread.id, 'm2')
+  assert.deepEqual(thread.ids, ['m2', 'm1'])
+  assert.deepEqual(thread.history.map(row => [row.id, row.title]), [['m1', 'Reminder']])
+  assert.match(thread.key, /^t-[0-9a-f]{20}$/)
+  assert.equal(items.length, 3, "bo's thread of the same name is bo's own item")
+  await call('read', { ids: ['m2'] })
+  assert.equal((await call('items')).body.items.find(item => item.key === thread.key).read, false)
+  await call('read', { ids: thread.ids })
+  assert.equal((await call('items')).body.items.find(item => item.key === thread.key).read, true)
+})
+
+test('groups come from the writer, else from lane and buttons; counts, the summary line and the domain map', async () => {
+  const soon = new Date(Date.now() + 3600 * 1000).toISOString()
+  const past = new Date(Date.now() - 3600 * 1000).toISOString()
+  await file('ana',
+    record('n1', { lane: 'interrupt', actions: [] }),
+    record('i1', { actions: [{ kind: 'step', id: 's', label: 'Plan it', payload: {} }] }),
+    record('h1', { actions: [], handled: { text: 'Asked again; follow-up set.' } }),
+    record('l1', { actions: [], thread: 'flight', live: { until: soon, progress: { from: past, to: soon } } }),
+    record('l2', { actions: [], thread: 'job', attention: 'live', live: { until: past } }),
+    record('e1', { attention: 'info' }))
+  await writeFile(join(dir, 'ana', 'summary.json'), JSON.stringify({ v: 1, text: 'Two things need you.', at: new Date().toISOString() }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const items = (await call('items')).body.items
+  const by = Object.fromEntries(items.map(item => [item.id, item]))
+  assert.deepEqual(items.map(item => [item.id, item.group]), [['n1', 'needs-you'], ['l1', 'live'], ['h1', 'handled'], ['i1', 'info'], ['l2', 'info'], ['e1', 'info']])
+  assert.deepEqual([by.l1.liveNow, by.l2.liveNow, by.l2.moved], [true, false, 'ended'])
+  assert.deepEqual(by.h1.handled, { text: 'Asked again; follow-up set.' })
+  assert.deepEqual(by.l1.live.progress, { from: past, to: soon })
+  const summary = (await call('summary')).body
+  assert.deepEqual(summary.groups, { 'needs-you': 1, live: 1, handled: 1, info: 3 })
+  assert.equal(summary.line.text, 'Two things need you.')
+  assert.deepEqual([summary.domains.legal, summary.domains.travel], [{ icon: 'scale', tone: 'violet' }, { icon: 'plane' }])
+  await writeFile(join(dir, 'ana', 'summary.json'), JSON.stringify({ text: 'Old news.', at: '2026-01-01T00:00:00Z' }))
+  assert.equal((await call('summary')).body.line, null, 'an old summary line is not shown')
+})
+
+test('a snoozed item waits under info until it comes back', async () => {
+  await file('ana', record('a1'))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const pressed = await call('action', { record: 'a1', action: 'snooze', until: new Date(Date.now() + 3600e3).toISOString() })
+  await file('ana', { v: 1, type: 'handled', record: 'a1', press: pressed.body.press, action: 'snooze', result: 'snoozed', until: new Date(Date.now() + 3600e3).toISOString(), time: new Date().toISOString() })
+  const [item] = (await call('items')).body.items
+  assert.deepEqual([item.group, item.moved], ['info', 'snoozed'])
+})
+
+test('the events stream tells an open page when its own inbox changed, and only then', async () => {
+  await file('ana', record('a1'))
+  await file('bo', record('b1'))
+  const { as, byPath, changes } = setup()
+  as(ANA_SUB)
+  const abort = new AbortController()
+  const response = await byPath.get('/api/notify-inbox/events')(new Request('https://dsh.example/api/notify-inbox/events', { signal: abort.signal }))
+  assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let seen = ''
+  let pending = null
+  const until = async (pattern, ms = 2000) => {
+    const end = Date.now() + ms
+    while (!pattern.test(seen) && Date.now() < end) {
+      pending ??= reader.read()
+      const chunk = await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve(null), 50))])
+      if (chunk === null) continue
+      pending = null
+      if (chunk.value) seen += decoder.decode(chunk.value)
+    }
+    return pattern.test(seen)
+  }
+  try {
+    assert.ok(await until(/: open/))
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await file('bo', record('b2'))
+    assert.equal(await until(/event: change/, 200), false, "bo's change is not ana's news")
+    await file('ana', record('a2'))
+    assert.ok(await until(/event: change/))
+  } finally {
+    abort.abort()
+    changes.stop()
+  }
 })
