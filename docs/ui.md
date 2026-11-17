@@ -10,7 +10,7 @@ From `@deepseek-ai/dsh-client-ui-primitives`, which DSH puts in every plugin's m
 |---|---|
 | `Button` (outline, small) | Mark all read, Mark unread, Show older, the ⋯ trigger |
 | `Pill` | The Needs you / All filters, as on the Automation page |
-| `Menu`, `Tooltip` | The ⋯ menu: push on this device, a test push, mark all read |
+| `Menu`, `Tooltip` | The ⋯ menu: notifications on this device, a test push |
 | `StateDot` | The green dot on a live item |
 | `IconCheckCircleOutlineRegular`, `IconEllipsisOutlineRegular` | The handled check, the ⋯ trigger |
 | Theme tokens (`--dsw-alias-*`) | Every colour, so light and dark follow the Web UI |

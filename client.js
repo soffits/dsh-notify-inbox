@@ -296,22 +296,19 @@ window.__ModuleLoader__.load({
       return { state, note: note ?? explain, enable, disable, test }
     }
 
-    function MoreMenu({ t, unread, onMarkAll }) {
+    function MoreMenu({ t }) {
       const push = usePush(t)
       const [open, setOpen] = useState(false)
       const items = [
         { type: 'label', id: 'push', text: `${t('push.title')} · ${t(`push.${push.state === 'on' ? 'on' : push.state === 'off' ? 'off' : 'unavailable'}`)}` },
         ...(push.state === 'off' ? [{ id: 'enable', label: t('push.enable') }] : []),
         ...(push.state === 'on' ? [{ id: 'test', label: t('push.test') }, { id: 'disable', label: t('push.disable') }] : []),
-        { type: 'separator', id: 'sep' },
-        { id: 'markAll', label: t('markAll'), disabled: unread === 0 },
       ]
       const pick = id => {
         setOpen(false)
         if (id === 'enable') push.enable()
         else if (id === 'disable') push.disable()
         else if (id === 'test') push.test()
-        else if (id === 'markAll') onMarkAll()
       }
       return h(React.Fragment, null,
         push.note && h('span', { className: 'nib-meta', role: 'status' }, push.note),
@@ -430,7 +427,7 @@ window.__ModuleLoader__.load({
               h('h1', null, t('title')),
               h('div', { className: 'nib-tools' },
                 h(Button, { variant: 'outline', size: 'sm', disabled: unread === 0, onClick: markAll }, t('markAll')),
-                h(MoreMenu, { t, unread, onMarkAll: markAll }))),
+                h(MoreMenu, { t }))),
             summary?.line && h('p', { className: 'nib-said' }, said(summary.line.text, t)),
             h('div', { className: 'nib-status' },
               h(kit.LiveStatus, { status: stream, updatedAt: summary?.latest ?? undefined }),
