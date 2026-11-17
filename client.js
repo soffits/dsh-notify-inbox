@@ -134,6 +134,7 @@ window.__ModuleLoader__.load({
     function pressStatus(item, t) {
       const press = item.presses[item.presses.length - 1]
       if (press === undefined) return null
+      if (press.action === 'step') return t('press.started')
       const handled = item.handled.find(row => row.press === press.press)
       if (handled !== undefined) {
         if (handled.result === 'snoozed' && handled.until) return t('press.snoozed', { time: absolute(handled.until, t) })
@@ -151,7 +152,7 @@ window.__ModuleLoader__.load({
     function pressStates(item) {
       const states = {}
       for (const press of item.presses) {
-        const action = item.actions.find(row => row.kind === press.action) ?? { id: press.action }
+        const action = item.actions.find(row => row.id === press.id) ?? item.actions.find(row => row.kind === press.action) ?? { id: press.action }
         const handled = item.handled.some(row => row.press === press.press)
         states[action.id] = handled ? 'done' : Date.now() - Date.parse(press.at) < PENDING_MS ? 'pending' : 'unhandled'
       }
@@ -173,9 +174,9 @@ window.__ModuleLoader__.load({
         changed()
       }
       const status = pressStatus(item, t)
-      return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: item.actions, states: pressStates(item), about, defaultChat: true, onPress }),
+      return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: item.actions, states: pressStates(item), about, defaultChat: true, onPress },
         markUnread,
-        status && h('span', { className: 'nib-status' }, status))
+        status && h('span', { className: 'nib-status' }, status)))
     }
 
     // ---- one notification ----

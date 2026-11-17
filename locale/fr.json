@@ -23,6 +23,7 @@
     "press.unhandled": "Personne ne l’a encore pris en charge",
     "press.done": "Marqué comme fait",
     "press.snoozed": "Rappel {time}",
+    "press.started": "Lancé",
     "push.title": "Notifications sur cet appareil",
     "push.on": "Activées",
     "push.off": "Désactivées",

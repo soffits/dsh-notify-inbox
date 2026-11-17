@@ -23,6 +23,7 @@
     "press.unhandled": "暂时没有人处理",
     "press.done": "已标为完成",
     "press.snoozed": "会在{time}再提醒",
+    "press.started": "已开始",
     "push.title": "本设备的通知",
     "push.on": "已开启",
     "push.off": "未开启",

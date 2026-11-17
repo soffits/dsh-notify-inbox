@@ -138,6 +138,22 @@ test('bad lines are skipped and counted, a half-written line waits, a rewritten 
   assert.deepEqual((await call('items')).body.items.map(item => item.id), ['a9'])
 })
 
+test('a step press is recorded as the person\'s go-ahead, per step button', async () => {
+  await file('ana', record('a1', { actions: [
+    { kind: 'step', id: 'pay', label: { en: 'Pay the invoice', zh: '付这张发票' }, payload: {} },
+    { kind: 'step', id: 'file', label: 'File it under taxes', payload: {} },
+  ] }))
+  const { as, call, emitted } = setup()
+  as(ANA_SUB)
+  assert.equal((await call('action', { record: 'a1', action: 'file' })).status, 200)
+  assert.equal(emitted[0].channel, 'ui.action.step')
+  assert.equal(emitted[0].data.person, 'ana')
+  assert.equal(emitted[0].data.id, 'file')
+  const [item] = (await call('items')).body.items
+  assert.deepEqual(item.presses.map(press => [press.action, press.id]), [['step', 'file']])
+  assert.deepEqual(item.actions[0].label, { en: 'Pay the invoice', zh: '付这张发票' })
+})
+
 test('a done press becomes an action event, is logged, and shows handled once the router says so', async () => {
   await file('ana', record('a1'))
   const { as, call, emitted } = setup()

@@ -19,6 +19,7 @@
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { viewerOf } from './access.js'
+import { EMITTING } from './actions.js'
 import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
 
 export const PREFIX = '/api/notify-inbox'
@@ -144,7 +145,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     if (record === undefined) return json(404, { error: 'No such notification.' })
     const declared = record.actions.find(row => row.id === value.action)
     if (declared === undefined) return json(400, { error: 'This notification has no such button.' })
-    if (!['done', 'snooze', 'event'].includes(declared.kind)) return json(400, { error: 'This button acts in the page.' })
+    if (!EMITTING.includes(declared.kind)) return json(400, { error: 'This button acts in the page.' })
     const result = await actions.press(record.person, record, declared, { until: value.until })
     await store.setRead(record.person, [record.id], true)
     return json(200, { press: result.event.press, published: result.published, matched: result.matched ?? 0 })

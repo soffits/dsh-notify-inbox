@@ -21,6 +21,8 @@ const READ = 'read.json'
 
 const text = value => (typeof value === 'string' ? value : '')
 const list = value => (Array.isArray(value) ? value : [])
+/** Text a person reads: a string, or a map from language tag to text (the page picks the language). */
+const words = value => (typeof value === 'string' ? value : value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(v => typeof v === 'string') ? value : '')
 
 /** A record as the page gets it, or undefined when the line is not one. */
 export function normalize(raw, person) {
@@ -48,7 +50,7 @@ export function normalize(raw, person) {
     actions: list(raw.actions).filter(action => typeof action?.kind === 'string' && typeof action?.id === 'string').map(action => ({
       kind: action.kind,
       id: action.id,
-      label: text(action.label) || undefined,
+      label: words(action.label) || undefined,
       payload: typeof action.payload === 'object' && action.payload !== null && !Array.isArray(action.payload) ? action.payload : {},
     })),
     test: raw.test === true,

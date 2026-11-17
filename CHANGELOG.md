@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Suggested next steps: a notification's `step` actions show as their own buttons (from @soffits/dsh-ui-actions 0.2.0). A tap is recorded here like done and snooze, as the event `ui.action.step` with who pressed it, then the step is sent to the assistant; the row says "Started".
+- Button labels may be maps from language tag to text.
+- Each press remembers which button it was, so several steps on one notification keep their own state.
+
 ## 0.3.0
 
 - The buttons come from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions), installed as its own plugin, instead of a copy of the card board's chunk. "Ask" now opens a conversation with the notification attached as a card the person can remove and write beside; the sent message shows the same card, and the agent gets the notification as compact text with its id. Without the package the page works and shows no buttons.

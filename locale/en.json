@@ -23,6 +23,7 @@
     "press.unhandled": "Nobody picked this up yet",
     "press.done": "Marked done",
     "press.snoozed": "Will remind you {time}",
+    "press.started": "Started",
     "push.title": "Notifications on this device",
     "push.on": "On",
     "push.off": "Off",

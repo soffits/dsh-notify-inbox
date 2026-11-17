@@ -12,7 +12,8 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 
-export const EMITTING = ['done', 'snooze', 'event']
+/** Kinds whose press is recorded here: a step's press is the person's go-ahead for what its label says. */
+export const EMITTING = ['step', 'done', 'snooze', 'event']
 const ACTIONS_LOG = 'actions.jsonl'
 
 /** The event a press becomes (same shape as the practice's actions spec). */
@@ -77,7 +78,7 @@ export function createActions({ dataDir, events, warn }) {
         const event = JSON.parse(line)
         const id = event?.source?.record
         if (typeof id !== 'string') continue
-        out.set(id, [...(out.get(id) ?? []), { press: event.press, action: event.action, at: event.at, until: event.payload?.until }])
+        out.set(id, [...(out.get(id) ?? []), { press: event.press, action: event.action, id: event.id, at: event.at, until: event.payload?.until }])
       } catch {
         // A torn line is skipped.
       }
