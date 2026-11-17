@@ -37,20 +37,10 @@ window.__ModuleLoader__.load({
       'notSent': 'Not sent anywhere else',
       'files': 'Attachments',
       'notStored': 'not kept: {reason}',
-      'action.chat': 'Ask about this',
-      'action.done': 'Done',
-      'action.snooze': 'Remind me later',
-      'action.event': 'Send',
-      'action.link': 'Open',
-      'snooze.hour': 'In an hour',
-      'snooze.evening': 'This evening',
-      'snooze.tomorrow': 'Tomorrow morning',
       'press.pending': 'Sent, waiting…',
       'press.unhandled': 'Nobody picked this up yet',
       'press.done': 'Marked done',
       'press.snoozed': 'Will remind you {time}',
-      'chat.intro': 'About this notification:',
-      'chat.unavailable': 'Open a workspace first, then try again.',
       'push.title': 'Notifications on this device',
       'push.on': 'On',
       'push.off': 'Off',
@@ -79,20 +69,10 @@ window.__ModuleLoader__.load({
       'notSent': '没有发到别处',
       'files': '附件',
       'notStored': '未保存：{reason}',
-      'action.chat': '问问这条',
-      'action.done': '完成',
-      'action.snooze': '稍后提醒',
-      'action.event': '发送',
-      'action.link': '打开',
-      'snooze.hour': '一小时后',
-      'snooze.evening': '今晚',
-      'snooze.tomorrow': '明早',
       'press.pending': '已发出，等待处理…',
       'press.unhandled': '暂时没有人处理',
       'press.done': '已标为完成',
       'press.snoozed': '会在{time}再提醒',
-      'chat.intro': '关于这条通知：',
-      'chat.unavailable': '先打开一个工作区，再试一次。',
       'push.title': '本设备的通知',
       'push.on': '已开启',
       'push.off': '未开启',
@@ -151,7 +131,6 @@ window.__ModuleLoader__.load({
 .nib-ok{color:var(--dsw-alias-state-success-primary)}
 .nib-bad{color:var(--dsw-alias-state-error-primary)}
 .nib-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.nib-menu{display:flex;flex-wrap:wrap;gap:6px;padding:6px;border-radius:10px;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
 .nib-status{color:var(--dsw-alias-label-tertiary);font-size:12px}
 .nib-empty{color:var(--dsw-alias-label-tertiary);padding:24px 12px}
 .nib-error{color:var(--dsw-alias-state-error-primary);padding:12px}
@@ -211,24 +190,6 @@ window.__ModuleLoader__.load({
     }
     const absolute = (iso, t) => new Date(iso).toLocaleString(t('time.locale'), { dateStyle: 'medium', timeStyle: 'short' })
 
-    /** Snooze choices as ISO times with this browser's offset. */
-    function snoozeTimes() {
-      const now = new Date()
-      const hour = new Date(now.getTime() + 3600 * 1000)
-      const evening = new Date(now)
-      evening.setHours(19, 0, 0, 0)
-      if (evening.getTime() - now.getTime() < 2 * 3600 * 1000) evening.setTime(now.getTime() + 3 * 3600 * 1000)
-      const tomorrow = new Date(now)
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      tomorrow.setHours(9, 0, 0, 0)
-      const iso = date => {
-        const offset = -date.getTimezoneOffset()
-        const pad = n => String(Math.floor(Math.abs(n))).padStart(2, '0')
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00${offset >= 0 ? '+' : '-'}${pad(offset / 60)}:${pad(offset % 60)}`
-      }
-      return [['snooze.hour', iso(hour)], ['snooze.evening', iso(evening)], ['snooze.tomorrow', iso(tomorrow)]]
-    }
-
     /** What happened to this item's latest press, in words, or null. */
     function pressStatus(item, t) {
       const press = item.presses[item.presses.length - 1]
@@ -242,58 +203,42 @@ window.__ModuleLoader__.load({
       return Date.now() - Date.parse(press.at) < PENDING_MS ? t('press.pending') : t('press.unhandled')
     }
 
-    function chatPrompt(item, t) {
-      const quoted = [item.title, item.text || item.spoken].filter(Boolean).join('\n\n').split('\n').map(line => `> ${line}`).join('\n')
-      const context = { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined, links: item.links.length ? item.links : undefined }
-      return `${t('chat.intro')}\n\n${quoted}\n\n\`\`\`json\n${JSON.stringify(context)}\n\`\`\`\n\n`
+    // ---- the buttons: the shared action bar (client.actions.js, also used by the card board) ----
+
+    let actionsModule
+    const loadActions = () => (actionsModule ??= require.async('./client.actions.js'))
+
+    /** The server's view of each button's last press: pending, done or unhandled. */
+    function pressStates(item) {
+      const states = {}
+      for (const press of item.presses) {
+        const action = item.actions.find(row => row.kind === press.action) ?? { id: press.action }
+        const handled = item.handled.some(row => row.press === press.press)
+        states[action.id] = handled ? 'done' : Date.now() - Date.parse(press.at) < PENDING_MS ? 'pending' : 'unhandled'
+      }
+      return states
     }
 
-    // ---- the actions row (a thin local adapter until a shared actions module exists) ----
-
-    function Actions({ item, t, startChat }) {
-      const [snoozing, setSnoozing] = useState(false)
-      const [busy, setBusy] = useState(false)
-      const [error, setError] = useState(null)
-      const press = async (action, until) => {
-        setBusy(true)
-        setError(null)
-        try {
-          await call('action', { record: item.id, action: action.id, ...(until ? { until } : {}) })
-          setSnoozing(false)
-          changed()
-        } catch (reason) {
-          setError(reason.message)
-        } finally {
-          setBusy(false)
-        }
+    function Actions({ item, t, ui }) {
+      if (ui === null) return null
+      const declared = item.actions.some(action => action.kind === 'chat') ? item.actions : [{ kind: 'chat', id: 'chat', payload: {} }, ...item.actions]
+      const chat = action => ui.startChat({
+        text: ui.chatText({ prompt: action.payload?.prompt ?? '', title: item.title || item.spoken, lines: (item.text || item.spoken).split('\n'),
+          context: { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined, links: item.links.length ? item.links : undefined } }),
+        session: action.payload?.session,
+      })
+      const onPress = async (action, extra) => {
+        await call('action', { record: item.id, action: action.id, ...(extra?.until ? { until: extra.until } : {}) })
+        changed()
       }
-      const declared = item.actions.filter(action => action.kind !== 'chat')
-      const chat = item.actions.find(action => action.kind === 'chat') ?? { kind: 'chat', id: 'chat', label: '', payload: {} }
-      const label = action => action.label || t(`action.${action.kind}`)
-      const buttons = [
-        h('button', { key: 'chat', type: 'button', className: 'nib-btn', onClick: () => startChat(chat.payload?.prompt ? `${chat.payload.prompt}\n\n${chatPrompt(item, t)}` : chatPrompt(item, t)) }, label(chat)),
-        ...declared.map(action => {
-          if (action.kind === 'link') {
-            return h('a', { key: action.id, className: 'nib-btn', href: action.payload.url, target: action.payload.url.startsWith('/') ? undefined : '_blank', rel: 'noopener noreferrer' }, label(action))
-          }
-          if (action.kind === 'snooze' && !action.payload.until) {
-            return h('button', { key: action.id, type: 'button', className: 'nib-btn', disabled: busy, 'aria-expanded': snoozing, onClick: () => setSnoozing(!snoozing) }, label(action))
-          }
-          return h('button', { key: action.id, type: 'button', className: `nib-btn${action.kind === 'done' ? ' nib-primary' : ''}`, disabled: busy, onClick: () => press(action) }, label(action))
-        }),
-      ]
-      const snooze = declared.find(action => action.kind === 'snooze')
       const status = pressStatus(item, t)
-      return h(React.Fragment, null,
-        h('div', { className: 'nib-actions' }, ...buttons, status && h('span', { className: 'nib-status' }, status)),
-        snoozing && snooze && h('div', { className: 'nib-menu', role: 'group' },
-          snoozeTimes().map(([key, until]) => h('button', { key, type: 'button', className: 'nib-btn', disabled: busy, onClick: () => press(snooze, until) }, t(key)))),
-        error && h('div', { className: 'nib-error', role: 'alert' }, error))
+      return h('div', { className: 'nib-actions' }, h(ui.ActionBar, { actions: declared, states: pressStates(item), chat, onPress }),
+        status && h('span', { className: 'nib-status' }, status))
     }
 
     // ---- one notification ----
 
-    function Item({ item, t, open, onToggle, startChat }) {
+    function Item({ item, t, open, onToggle, ui }) {
       const urgent = item.lane === 'interrupt'
       const className = ['nib-item', item.read ? '' : 'nib-unread', urgent ? 'nib-urgent' : '', open ? 'nib-open' : ''].filter(Boolean).join(' ')
       const title = item.title || item.spoken || item.text.slice(0, 80)
@@ -317,7 +262,7 @@ window.__ModuleLoader__.load({
             item.files.map(file => file.stored
               ? h('a', { key: file.name, href: api(`file?id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(file.name)}`), target: '_blank', rel: 'noopener' }, file.name)
               : h('span', { key: file.name, className: 'nib-meta' }, `${file.name} (${t('notStored', { reason: file.reason || '?' })})`))),
-          h(Actions, { item, t, startChat }),
+          h(Actions, { item, t, ui }),
           h('div', { className: 'nib-meta' },
             item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
               item.routed.map(row => h('span', { key: row.destination, className: 'nib-route', title: row.detail || '' },
@@ -414,7 +359,7 @@ window.__ModuleLoader__.load({
 
     // ---- the page ----
 
-    function InboxPage({ translate: t, startChat }) {
+    function InboxPage({ translate: t, makeActions }) {
       const version = useShared(s => s.version)
       const unread = useShared(s => s.unread)
       const linked = useShared(s => s.linked)
@@ -423,6 +368,12 @@ window.__ModuleLoader__.load({
       const [more, setMore] = useState(false)
       const [error, setError] = useState(null)
       const [open, setOpen] = useState(() => shared.linked)
+      const [ui, setUi] = useState(null)
+      useEffect(() => {
+        let live = true
+        makeActions(t('time.locale')).then(made => { if (live) setUi(made) }, reason => { if (live) setError(reason.message) })
+        return () => { live = false }
+      }, [])
 
       const load = useCallback(async (append) => {
         try {
@@ -470,7 +421,7 @@ window.__ModuleLoader__.load({
             error && h('p', { className: 'nib-error', role: 'alert' }, t('error', { message: error })),
             items !== null && items.length === 0 && h('p', { className: 'nib-empty' }, t(filter === 'unread' ? 'empty.unread' : 'empty.all')),
             items !== null && h('ul', { className: 'nib-list' },
-              items.map(item => h(Item, { key: item.id, item, t, open: open === item.id, onToggle: toggle, startChat }))),
+              items.map(item => h(Item, { key: item.id, item, t, open: open === item.id, onToggle: toggle, ui }))),
             more && h('button', { type: 'button', className: 'nib-btn nib-more', onClick: () => load(true) }, t('loadMore')))))
     }
 
@@ -502,20 +453,13 @@ window.__ModuleLoader__.load({
           return () => tag.remove()
         }, 'notify-inbox: styles')
 
-        const startChat = prompt => {
-          const workspace = ctx.get('uiWorkspace')
-          if (workspace === undefined) {
-            window.alert(t('chat.unavailable'))
-            return
-          }
-          workspace.startSession(undefined, { prompt, whenDraftExists: 'replace' })
-        }
+        const makeActions = locale => loadActions().then(module => module.createActions({ React, ctx, locale }))
 
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL,
           locale: NS,
-          inject: () => ({ translate: t, startChat }),
+          inject: () => ({ translate: t, makeActions }),
         }, InboxPage))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

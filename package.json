@@ -1,6 +1,6 @@
 {
   "name": "@soffits/dsh-notify-inbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A notification inbox for DeepSeek Harness: each person sees their own notifications with read and unread, gets Web Push on their phone or browser, and can act on them.",
   "type": "module",
   "license": "MIT",
@@ -18,11 +18,12 @@
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./client.actions.js": "./client.actions.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
-  "files": ["src", "client.js", "index.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": ["src", "client.js", "client.actions.js", "index.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "CHANGELOG.md", "LICENSE"],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -38,7 +39,7 @@
     }
   },
   "scripts": {
-    "check": "for f in index.js client.js src/*.js test/*.js; do node --check \"$f\" || exit 1; done",
+    "check": "for f in index.js client.js client.actions.js src/*.js test/*.js; do node --check \"$f\" || exit 1; done",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

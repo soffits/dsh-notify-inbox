@@ -48,7 +48,7 @@ export function normalize(raw, person) {
     actions: list(raw.actions).filter(action => typeof action?.kind === 'string' && typeof action?.id === 'string').map(action => ({
       kind: action.kind,
       id: action.id,
-      label: text(action.label),
+      label: text(action.label) || undefined,
       payload: typeof action.payload === 'object' && action.payload !== null && !Array.isArray(action.payload) ? action.payload : {},
     })),
     test: raw.test === true,
