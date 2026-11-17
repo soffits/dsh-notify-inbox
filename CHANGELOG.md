@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Every word on the page comes from `locale/<tag>.json`, one file per language, picked up by what files exist; a missing key falls back to the primary language, then English. French joins English and Chinese.
+- The test push speaks the page's language; the push payload and service worker carry no built-in words.
+- The buttons module is the card board's current one (words come from the page's own table).
+
 ## 0.1.3
 
 - The buttons chunk keeps its names inside its own scope, so it loads next to another plugin's copy on the same page (DSH runs chunks as classic scripts in one global scope).

@@ -83,7 +83,7 @@ export function checkSubscription(value) {
 
 /** The notification a record becomes: what the push service carries (encrypted) and the service worker shows. */
 export function payloadOf(record) {
-  const title = record.title || record.spoken.slice(0, 60) || 'Notification'
+  const title = record.title || record.spoken.slice(0, 60) || record.text.slice(0, 60) || record.domain
   const body = record.spoken && record.spoken !== record.title ? record.spoken : record.text
   return {
     title: record.test ? `[test] ${title}` : title,
@@ -167,11 +167,11 @@ export function createPush({ dataDir, vapidFile, subject, perPerson, warn, fetch
     return { sent, removed: gone.length }
   }
 
-  /** Push a test to the asking person's devices. */
-  function test(person) {
+  /** Push a test, in the words the asking page sends, to the asking person's devices. */
+  function test(person, { title, body }) {
     return serial(async () => {
       const subs = (await subscriptions()).filter(sub => (sub.person ?? null) === (person ?? null))
-      return deliver(subs, { title: 'Inbox', body: 'Notifications reach this device.', tag: 'notify-inbox-test', url: './?notify-inbox=', urgent: false }, false)
+      return deliver(subs, { title: String(title ?? '').slice(0, 80), body: String(body ?? '').slice(0, BODY_LIMIT), tag: 'notify-inbox-test', url: './?notify-inbox=', urgent: false }, false)
     })
   }
 

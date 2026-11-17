@@ -22,71 +22,6 @@ window.__ModuleLoader__.load({
     const PENDING_MS = 2 * 60 * 1000
     const api = path => new URL(`api/notify-inbox/${path}`, document.baseURI).href
 
-    const en = {
-      panel: 'Inbox',
-      title: 'Inbox',
-      'filter.unread': 'Unread',
-      'filter.all': 'All',
-      'markAll': 'Mark all read',
-      'empty.unread': 'Nothing unread.',
-      'empty.all': 'No notifications yet.',
-      'loadMore': 'Show older',
-      'urgent': 'Urgent',
-      'test': 'Test',
-      'alsoSent': 'Also sent to',
-      'notSent': 'Not sent anywhere else',
-      'files': 'Attachments',
-      'notStored': 'not kept: {reason}',
-      'press.pending': 'Sent, waiting…',
-      'press.unhandled': 'Nobody picked this up yet',
-      'press.done': 'Marked done',
-      'press.snoozed': 'Will remind you {time}',
-      'push.title': 'Notifications on this device',
-      'push.on': 'On',
-      'push.off': 'Off',
-      'push.enable': 'Turn on',
-      'push.disable': 'Turn off',
-      'push.test': 'Send a test',
-      'push.testSent': 'Test sent to {n} device(s).',
-      'push.denied': 'Notifications are blocked for this site in the browser settings.',
-      'push.unsupported': 'This browser can’t receive push notifications here.',
-      'push.ios': 'On iPhone or iPad, add this site to the Home Screen and open it from there to turn notifications on.',
-      'error': 'Couldn’t load: {message}',
-      'time.locale': 'en-US',
-    }
-    const zh = {
-      panel: '收件箱',
-      title: '收件箱',
-      'filter.unread': '未读',
-      'filter.all': '全部',
-      'markAll': '全部已读',
-      'empty.unread': '没有未读通知。',
-      'empty.all': '还没有通知。',
-      'loadMore': '更早的',
-      'urgent': '紧急',
-      'test': '测试',
-      'alsoSent': '同时发到',
-      'notSent': '没有发到别处',
-      'files': '附件',
-      'notStored': '未保存：{reason}',
-      'press.pending': '已发出，等待处理…',
-      'press.unhandled': '暂时没有人处理',
-      'press.done': '已标为完成',
-      'press.snoozed': '会在{time}再提醒',
-      'push.title': '本设备的通知',
-      'push.on': '已开启',
-      'push.off': '未开启',
-      'push.enable': '开启',
-      'push.disable': '关闭',
-      'push.test': '发一条测试',
-      'push.testSent': '测试已发到 {n} 台设备。',
-      'push.denied': '浏览器设置里禁止了这个网站的通知。',
-      'push.unsupported': '这个浏览器在这里收不到推送通知。',
-      'push.ios': 'iPhone 或 iPad 上，先把这个网站添加到主屏幕，再从主屏幕打开，才能开启通知。',
-      'error': '加载失败：{message}',
-      'time.locale': 'zh-CN',
-    }
-
     const CSS = `
 .nib-page{width:100%;min-width:0;height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.6}
 .nib-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable}
@@ -285,7 +220,7 @@ window.__ModuleLoader__.load({
       const ua = navigator.userAgent
       const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : ''
       const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser'
-      return [browser, os].filter(Boolean).join(' on ')
+      return [browser, os].filter(Boolean).join(' · ')
     }
 
     async function currentSubscription() {
@@ -347,7 +282,7 @@ window.__ModuleLoader__.load({
         setState('off')
       })
       const test = run(async () => {
-        const result = await call('push/test', {})
+        const result = await call('push/test', { title: t('push.testTitle'), body: t('push.testBody') })
         setNote(t('push.testSent', { n: result.sent }))
       })
       return h('div', { className: 'nib-push' },
@@ -374,7 +309,7 @@ window.__ModuleLoader__.load({
       const [ui, setUi] = useState(null)
       useEffect(() => {
         let live = true
-        makeActions(t('time.locale')).then(made => { if (live) setUi(made) }, reason => { console.warn('notify-inbox: buttons unavailable', reason) })
+        makeActions().then(made => { if (live) setUi(made) }, reason => { console.warn('notify-inbox: buttons unavailable', reason) })
         return () => { live = false }
       }, [])
 
@@ -449,9 +384,15 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        // The words come from the plugin's locale/<tag>.json files, served complete per tag.
         ctx.effect(() => {
-          const disposers = [ctx.locale.register(NS, 'en', en), ctx.locale.register(NS, 'zh', zh)]
-          return () => { for (const dispose of disposers) dispose() }
+          let disposers = []
+          let live = true
+          call('strings').then(({ tables }) => {
+            if (!live) return
+            disposers = Object.entries(tables).map(([tag, table]) => ctx.locale.register(NS, tag, table))
+          }, reason => console.warn('notify-inbox: words unavailable', reason))
+          return () => { live = false; for (const dispose of disposers) dispose() }
         }, 'notify-inbox: dictionaries')
         const t = ctx.locale.bind(NS)
 
@@ -464,7 +405,7 @@ window.__ModuleLoader__.load({
           return () => tag.remove()
         }, 'notify-inbox: styles')
 
-        const makeActions = locale => loadActions().then(module => module.createActions({ React, ctx, locale }))
+        const makeActions = () => loadActions().then(module => module.createActions({ React, ctx, t: (key, params) => t(`action.${key}`, params) }))
 
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',

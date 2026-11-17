@@ -15,7 +15,7 @@ function payloadOf(event) {
   } catch {
     // An unreadable payload still shows something.
   }
-  return { title: 'Inbox', body: 'You have a new notification.' }
+  return { title: self.location.host, body: '' }
 }
 
 self.addEventListener('push', event => {
@@ -31,7 +31,7 @@ self.addEventListener('push', event => {
     options.tag = value.tag
     options.renotify = true
   }
-  event.waitUntil(self.registration.showNotification(typeof value.title === 'string' && value.title ? value.title : 'Inbox', options))
+  event.waitUntil(self.registration.showNotification(typeof value.title === 'string' && value.title ? value.title : self.location.host, options))
 })
 
 self.addEventListener('notificationclick', event => {

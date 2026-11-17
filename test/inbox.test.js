@@ -222,7 +222,7 @@ test('new records are pushed to their person\'s devices only, never the backlog;
   pushes.length = 0
   await push.scan(['ana', 'bo'])
   assert.equal(pushes.length, 0, 'nothing twice')
-  assert.equal((await call('push/test', {})).body.sent, 1)
+  assert.equal((await call('push/test', { title: 'T', body: 'B' })).body.sent, 1)
 })
 
 test('the service worker is served as JavaScript', async () => {

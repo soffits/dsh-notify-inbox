@@ -13,6 +13,7 @@
  *   POST /api/notify-inbox/push/subscribe            { subscription, label }
  *   POST /api/notify-inbox/push/unsubscribe          { endpoint }
  *   POST /api/notify-inbox/push/test
+ *   GET  /api/notify-inbox/strings                   the page's words by language tag (src/locales.js)
  *   GET  /api/notify-inbox/sw.js                     the service worker (scope /api/notify-inbox/)
  */
 import { readFile } from 'node:fs/promises'
@@ -58,9 +59,10 @@ async function body(request) {
  * @param {ReturnType<import('./actions.js').createActions>} options.actions
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
+ * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag
  * @param {number} options.pollSeconds
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, pollSeconds }) {
+export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), pollSeconds }) {
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
     const viewer = await viewerOf(people, identity())
@@ -181,7 +183,9 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     await push.unsubscribe(who.person, value.endpoint)
     return json(200, { ok: true })
   })
-  const pushTest = handle(async (_request, who) => json(200, await push.test(who.person)))
+  const pushTest = handle(async (request, who) => json(200, await push.test(who.person, await body(request))))
+
+  const words = async () => json(200, { tables: await strings() }, { 'cache-control': 'private, max-age=300' })
 
   const worker = async () => new Response(serviceWorker, {
     status: 200,
@@ -201,6 +205,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     post('/push/subscribe', subscribe),
     post('/push/unsubscribe', unsubscribe),
     post('/push/test', pushTest),
+    get('/strings', words),
     get('/sw.js', worker),
   ]
 }

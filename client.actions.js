@@ -4,12 +4,22 @@
  *
  * A DSH client chunk: dsh-card-board's client loads it with
  * `require.async('./client.actions.js')`. Another plugin can ship a copy as
- * its own `client.actions.js`, changing OWNER below to its package name; the
- * file has no imports and takes React and the client context as arguments.
+ * its own `client.actions.js`, changing OWNER below to its package name.
+ *
+ * DSH runs a chunk as a classic script, so everything sits inside one function
+ * (a top-level `const` would clash with another plugin's copy and the second
+ * chunk would never register).
  *
  *   const { createActions } = await require.async('./client.actions.js')
- *   const ui = createActions({ React, ctx, locale: 'en', press })
+ *   const ui = createActions({ React, ctx, t, press })
  *   h(ui.ActionBar, { actions, states, chat, onPress })
+ *
+ * `t(key, params)` gives the words in the person's language; the host plugin
+ * keeps them in its one message table. The keys it must know are exported as
+ * `KEYS`: chat, chatAbout, done, snooze, event, link, in3h, tomorrow, pick,
+ * set, cancel, sending, pending, handled, unhandled, failed ({message}),
+ * noWorkspace. `t` is called while rendering, so a language switch shows up
+ * without building the buttons again.
  *
  * `press(action, extra)` is the plugin's own server call for done, snooze and
  * event (extra carries `until` for a snooze); it should resolve once the
@@ -21,63 +31,34 @@
 (() => {
 const OWNER = '@soffits/dsh-notify-inbox'
 
-const WORDS = {
-  en: {
-    chat: 'Ask',
-    chatAbout: 'Chat about this',
-    done: 'Done',
-    snooze: 'Snooze',
-    open: 'Open',
-    in3h: 'In 3 hours',
-    tomorrow: 'Tomorrow 9:00',
-    pick: 'Pick a time…',
-    set: 'Snooze',
-    cancel: 'Cancel',
-    sending: 'Sending…',
-    pending: 'Waiting for it to be picked up',
-    handled: 'Done',
-    unhandled: 'Nothing picked this up yet',
-    failed: 'Didn’t go through: {message}',
-    noWorkspace: 'Open a conversation once first, then try again.',
-  },
-  zh: {
-    chat: '问问',
-    chatAbout: '聊聊这个',
-    done: '完成',
-    snooze: '稍后提醒',
-    open: '打开',
-    in3h: '3 小时后',
-    tomorrow: '明天 9:00',
-    pick: '选个时间…',
-    set: '稍后提醒',
-    cancel: '取消',
-    sending: '发送中…',
-    pending: '等待处理',
-    handled: '已处理',
-    unhandled: '还没有被处理',
-    failed: '没有成功：{message}',
-    noWorkspace: '请先打开一次对话，再试一次。',
-  },
-}
+const KEYS = ['chat', 'chatAbout', 'done', 'snooze', 'event', 'link', 'in3h', 'tomorrow', 'pick', 'set', 'cancel', 'sending', 'pending', 'handled', 'unhandled', 'failed', 'noWorkspace']
 
 const CSS = `
-.ua-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.ua-btn{box-sizing:border-box;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer;white-space:nowrap;text-decoration:none;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
+.ua-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.ua-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;max-width:100%;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer;text-decoration:none;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
+.ua-btn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ua-btn svg{flex:none;width:14px;height:14px}
 .ua-btn:disabled{cursor:default;opacity:.7}
 @media (hover:hover){.ua-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}
-.ua-icon{width:26px;height:26px;padding:0;justify-content:center;box-shadow:none;color:var(--dsw-alias-label-tertiary)}
+.ua-icon{width:32px;padding:0;box-shadow:none;color:var(--dsw-alias-label-tertiary)}
 .ua-btn[data-state=pending] svg,.ua-btn[data-state=sending] svg{animation:ua-pulse 1.2s ease-in-out infinite}
 .ua-btn[data-state=done]{color:var(--dsw-alias-state-success-primary)}
 .ua-btn[data-state=unhandled]{color:var(--dsw-alias-state-warn-label,var(--dsw-alias-state-warn-primary))}
 @keyframes ua-pulse{50%{opacity:.35}}
-.ua-wrap{position:relative;display:inline-flex}
+.ua-wrap{position:relative;display:inline-flex;max-width:100%;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .ua-menu{position:absolute;z-index:20;top:calc(100% + 4px);right:0;min-width:168px;padding:4px;border-radius:12px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));box-shadow:0 6px 24px #0000001f,inset 0 0 0 .5px var(--dsw-alias-border-l2);display:flex;flex-direction:column}
-.ua-menu button{display:flex;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.ua-menu button{display:flex;align-items:center;gap:8px;min-height:36px;padding:7px 10px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
 @media (hover:hover){.ua-menu button:hover{background:var(--dsw-alias-interactive-bg-hover)}}
-.ua-menu input{margin:4px 6px;padding:6px 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:13px}
+.ua-menu input{margin:4px 6px;min-height:36px;padding:6px 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:16px}
 .ua-menuRow{display:flex;justify-content:flex-end;gap:4px;padding:2px 4px}
-.ua-error{color:var(--dsw-alias-state-error-primary);font-size:12px}
+.ua-error{flex-basis:100%;color:var(--dsw-alias-state-error-primary);font-size:12px;overflow-wrap:anywhere}
+@media (width<=768px),(pointer:coarse){
+.ua-btn{min-height:40px}
+.ua-icon{width:40px}
+.ua-menu{position:fixed;z-index:1000;top:auto;left:12px;right:12px;bottom:12px;max-height:60vh;overflow:auto;padding:8px;box-shadow:0 8px 40px #00000040,inset 0 0 0 .5px var(--dsw-alias-border-l2)}
+.ua-menu button{min-height:44px;font-size:15px}
+.ua-menu input{min-height:44px}
+}
 `
 
 const ICONS = {
@@ -88,10 +69,6 @@ const ICONS = {
   link: 'M6 3.5H3.5v9h9V10M9 3h4v4M13 3 7.5 8.5',
   pending: 'M8 8m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
   unhandled: 'M8 3.5v5.5M8 12v.5',
-}
-
-function fill(text, params) {
-  return String(text).replace(/\{(\w+)\}/g, (match, key) => (key in params ? String(params[key]) : match))
 }
 
 /** The next 09:00 after now, as an ISO string. */
@@ -118,14 +95,12 @@ function chatText({ prompt = '', title, lines = [], context }) {
  * @param {object} options
  * @param {object} options.React - the page's React
  * @param {object} options.ctx - the plugin's client context (ctx.get reaches the Web UI's services)
- * @param {string} [options.locale] - 'zh…' picks Chinese words, anything else English
+ * @param {(key: string, params?: object) => string} options.t - the words in the person's language, one of KEYS
  * @param {(action: object, extra: object) => Promise<unknown>} [options.press] - the server call for done, snooze and event
  */
-function createActions({ React, ctx, locale = 'en', press }) {
+function createActions({ React, ctx, t, press }) {
   const h = React.createElement
   const { useState, useEffect, useRef } = React
-  const words = WORDS[String(locale).toLowerCase().startsWith('zh') ? 'zh' : 'en']
-  const t = key => words[key] ?? WORDS.en[key] ?? key
 
   if (typeof document !== 'undefined' && !document.getElementById('dsh-actions-ui-style')) {
     const style = document.createElement('style')
@@ -198,7 +173,7 @@ function createActions({ React, ctx, locale = 'en', press }) {
     const [menu, setMenu] = useState(false)
     useEffect(() => { if (state) setLocal(null) }, [state])
     const shown = local ?? state
-    const label = action.label ?? t(action.kind === 'chat' ? 'chat' : action.kind === 'link' ? 'open' : action.kind)
+    const label = action.label ?? t(action.kind)
     const title = shown === 'sending' ? t('sending') : shown === 'pending' ? t('pending') : shown === 'done' ? t('handled') : shown === 'unhandled' ? t('unhandled') : error ?? label
     const icon = shown === 'done' ? 'done' : shown === 'unhandled' ? 'unhandled' : action.kind
     const className = `ua-btn${compact ? ' ua-icon' : ''}`
@@ -223,7 +198,7 @@ function createActions({ React, ctx, locale = 'en', press }) {
         }
       } catch (reason) {
         setLocal(null)
-        setError(fill(t('failed'), { message: reason?.message ?? String(reason) }))
+        setError(t('failed', { message: reason?.message ?? String(reason) }))
       }
     }
     const onClick = () => {
@@ -255,5 +230,5 @@ function createActions({ React, ctx, locale = 'en', press }) {
   return { ActionBar, ActionButton, Icon, startChat, chatText, t }
 }
 
-window.__ModuleLoader__.load({ id: OWNER, chunk: 'client.actions.js', factory: () => ({ createActions, chatText }) })
+window.__ModuleLoader__.load({ id: OWNER, chunk: 'client.actions.js', factory: () => ({ createActions, chatText, KEYS }) })
 })()

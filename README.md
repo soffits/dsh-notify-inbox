@@ -84,6 +84,10 @@ Open the inbox on the device and press **Turn on**. The browser picks its own pu
 
 Tapping a notification opens the inbox on it. A device whose subscription expired is dropped the first time its push service says so.
 
+## Languages
+
+The page follows DSH's language. Its words live in `locale/<tag>.json` (`ui` for the page, `meta` for the plugin list): English, French and Chinese ship. Another language is one more file with the same keys; anything it leaves out comes from its primary language (`pt` for `pt-BR`), then English. Notification text is shown as it was sent.
+
 ## Files the plugin writes
 
 All under `dataDir`: `<person>/read.json` (read marks), `<person>/actions.jsonl` (presses), `.push/subscriptions.json` and `.push/cursor.json` (how far each inbox was pushed, so a restart doesn't push the backlog), and the VAPID key unless `vapidFile` says otherwise. It never rewrites `inbox.jsonl`.

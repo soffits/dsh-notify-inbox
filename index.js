@@ -11,12 +11,14 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { createPeople, expandHome } from './src/access.js'
 import { createActions } from './src/actions.js'
 import { createPush } from './src/push.js'
 import { createRoutes } from './src/routes.js'
 import { createStore } from './src/store.js'
+import { readLocales, tables } from './src/locales.js'
 
 export const name = 'dsh-notify-inbox'
 export const inject = ['connection']
@@ -68,7 +70,8 @@ export function apply(ctx, config) {
   })
   const actions = createActions({ dataDir, events: () => ctx.get('cronJobs'), warn })
   const pollSeconds = config.pollSeconds ?? 5
-  const routes = createRoutes({ store, people, push, actions, identity: () => ctx.get('requestIdentity'), serviceWorker, pollSeconds: Math.max(pollSeconds, 15) })
+  const strings = readLocales(fileURLToPath(new URL('./locale/', import.meta.url))).then(tables)
+  const routes = createRoutes({ store, people, push, actions, identity: () => ctx.get('requestIdentity'), serviceWorker, strings: () => strings, pollSeconds: Math.max(pollSeconds, 15) })
   for (const route of routes) ctx.connection.fetch.register(route)
 
   let stopped = false
