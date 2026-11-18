@@ -61,6 +61,7 @@ window.__ModuleLoader__.load({
 .nib-groupHead{display:flex;align-items:baseline;gap:8px;padding:0 8px}
 .nib-groupHead h2{margin:0;font-size:14px;line-height:22px;font-weight:500}
 .nib-list{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+.nib-flat{margin-bottom:24px}
 .nib-item{border-radius:12px;padding:8px}
 .nib-item.nib-open{background:var(--dsw-alias-bg-layer-1)}
 @media (hover:hover){.nib-item:not(.nib-open):hover{background:var(--dsw-alias-interactive-bg-hover)}}
@@ -70,7 +71,7 @@ window.__ModuleLoader__.load({
 .nib-titleLine{display:flex;align-items:flex-start;gap:8px;min-width:0;padding-top:4px}
 .nib-titleLine>.uk-newDot{margin-top:8px}
 .nib-title{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:23px;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
-.nib-unread .nib-title,.nib-group[data-group=urgent] .nib-title,.nib-group[data-group=needs-you] .nib-title,.nib-group[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
+.nib-unread .nib-title,.nib-item[data-group=urgent] .nib-title,.nib-item[data-group=needs-you] .nib-title,.nib-item[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
 .nib-points{flex:none;align-self:center;padding:0 6px;border-radius:9px;font-size:12px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .nib-reply{display:flex;flex-direction:column;gap:6px;max-width:640px}
 .nib-reply textarea{box-sizing:border-box;width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;resize:vertical}
@@ -224,7 +225,7 @@ window.__ModuleLoader__.load({
         changed()
       }
       const className = ['nib-item', item.read ? '' : 'nib-unread', open ? 'nib-open' : '', wash].filter(Boolean).join(' ')
-      return h('li', { className, id: `nib-${item.key}` },
+      return h('li', { className, id: `nib-${item.key}`, 'data-group': group },
         h('div', { className: 'nib-line' },
           h(kit.Tile, { icon: domain.icon ?? GROUP_ICON[group], tone, size: 32 }),
           h('div', { className: 'nib-main' },
@@ -392,9 +393,10 @@ window.__ModuleLoader__.load({
       const [more, setMore] = useState(false)
       const [error, setError] = useState(null)
       const [open, setOpen] = useState(() => shared.linked)
-      // Items shown in this view stay where they first showed (their group, and in "Needs you" at all)
-      // as they turn read, done or snoozed, so nothing moves under the person's finger; leaving the
-      // view (or tapping its filter again) lets them go.
+      // Needs you and Unread keep the items they showed (Needs you in the group they first showed in) as
+      // they turn read, done or snoozed, so nothing moves under the person's finger; leaving the view (or
+      // tapping its filter again) lets them go. All and Unread are one list in time order, newest first,
+      // exactly as the server sends it.
       const placed = useRef(new Map())
       const [visit, setVisit] = useState(0)
       /** Remember where items first showed: the page's first items in order, later arrivals on top, older pages below. */
@@ -413,8 +415,8 @@ window.__ModuleLoader__.load({
       const load = useCallback(async append => {
         try {
           const params = new URLSearchParams()
-          if (view === 'needs-you') {
-            params.set('view', 'needs-you')
+          if (view !== 'all') {
+            params.set('view', view)
             if (placed.current.size > 0) params.set('keep', [...placed.current.keys()].join(','))
           }
           if (append && items?.length) params.set('before', items[items.length - 1].key)
@@ -462,11 +464,13 @@ window.__ModuleLoader__.load({
       const groups = summary?.groups ?? {}
       const domains = summary?.domains ?? {}
       const total = summary?.total ?? 0
+      const grouped = view === 'needs-you'
       const byGroup = new Map(GROUPS.map(group => [group, []]))
       for (const item of items ?? []) byGroup.get(placed.current.get(item.key)?.group ?? item.group)?.push(item)
       const rank = item => placed.current.get(item.key)?.rank ?? 0
       for (const list of byGroup.values()) list.sort((a, b) => rank(a) - rank(b))
-      const filters = [['needs-you', t('group.needs-you'), groups['needs-you'] ?? 0], ['all', t('filter.all'), total]]
+      const itemRow = (item, group = item.group) => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, onToggle: toggle, onMark: mark })
+      const filters = [['needs-you', t('group.needs-you'), groups['needs-you'] ?? 0], ['all', t('filter.all'), total], ['unread', t('filter.unread'), unread]]
 
       return h('div', { className: 'nib-page' },
         h('div', { className: 'nib-scroll' },
@@ -486,12 +490,13 @@ window.__ModuleLoader__.load({
                 label, n > 0 && h('span', { className: 'nib-n' }, n)))),
             error && h('p', { className: 'nib-error', role: 'alert' }, t('error', { message: error })),
             items !== null && items.length === 0 && h('p', { className: 'nib-empty' }, t(`empty.${view}`)),
-            GROUPS.map(group => byGroup.get(group).length > 0 && h('section', { key: group, className: 'nib-group', 'data-group': group, 'aria-label': t(`group.${group}`) },
+            !grouped && items !== null && items.length > 0 && h('ul', { className: 'nib-list nib-flat' }, items.map(item => itemRow(item))),
+            grouped && GROUPS.map(group => byGroup.get(group).length > 0 && h('section', { key: group, className: 'nib-group', 'data-group': group, 'aria-label': t(`group.${group}`) },
               h('div', { className: 'nib-groupHead' },
                 h('h2', null, t(`group.${group}`)),
                 h('span', { className: 'nib-n' }, byGroup.get(group).length)),
               h('ul', { className: 'nib-list' },
-                byGroup.get(group).map(item => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, onToggle: toggle, onMark: mark }))))),
+                byGroup.get(group).map(item => itemRow(item, group))))),
             more && h('div', { className: 'nib-more' }, h(Button, { variant: 'outline', size: 'sm', onClick: () => load(true) }, t('loadMore'))))))
     }
 

@@ -24,7 +24,7 @@ import { extname } from 'node:path'
 import { viewerOf } from './access.js'
 import { EMITTING } from './actions.js'
 import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
-import { buildItems, countItems } from './view.js'
+import { buildItems, countItems, inGroupOrder } from './view.js'
 
 export const PREFIX = '/api/notify-inbox'
 const MAX_BODY = 16 * 1024
@@ -119,11 +119,14 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     const params = new URL(request.url).searchParams
     const limit = Math.min(Math.max(Number(params.get('limit')) || PAGE, 1), 200)
     let { items } = await itemsOf(who)
-    if (params.get('view') === 'needs-you') {
+    const view = params.get('view')
+    if (view === 'needs-you' || view === 'unread') {
       // `keep` holds what the page already shows in this view, so those items stay put as they leave it.
       const keep = new Set((params.get('keep') ?? '').split(',').filter(key => ITEM_KEY.test(key)).slice(0, KEEP_MAX))
-      items = items.filter(item => item.group === 'needs-you' || keep.has(item.key))
+      items = items.filter(item => (view === 'needs-you' ? item.group === 'needs-you' : !item.read) || keep.has(item.key))
     }
+    // Needs you is grouped (its kept items show where they first were); All and Unread are plain time order.
+    if (view === 'needs-you') items = inGroupOrder(items)
     const before = params.get('before')
     if (before) {
       const at = items.findIndex(item => item.key === before)

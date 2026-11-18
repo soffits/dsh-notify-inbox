@@ -73,8 +73,8 @@ function askItem(ask, record) {
 
 /**
  * Fold records (newest first, each with `read` and `outcomes`) and the people's asks (person →
- * `{ present, asks }`) into items, ordered by group (urgent, needs-you, live, handled, info) and
- * newest first within a group.
+ * `{ present, asks }`) into items, newest first by the time of each item's latest notification,
+ * whatever group it shows in.
  */
 export function buildItems(records, now, asking = new Map()) {
   const asked = new Map([...asking].map(([person, value]) => [person, { present: value.present, open: new Map(value.asks.map(ask => [ask.id, ask])) }]))
@@ -102,8 +102,13 @@ export function buildItems(records, now, asking = new Map()) {
     const where = groupOf(item, now, mine === undefined ? undefined : { present: mine.present, open: mine.open })
     return { ...item, ...where, liveNow: liveNow(item, now) }
   })
+  return items.sort((a, b) => (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
+}
+
+/** Items in group order (urgent, needs-you, live, handled, info), keeping their order within a group. */
+export function inGroupOrder(items) {
   const rank = group => GROUPS.indexOf(group)
-  return items.sort((a, b) => rank(a.group) - rank(b.group) || (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
+  return [...items].sort((a, b) => rank(a.group) - rank(b.group))
 }
 
 /** How many items each group has, and how many are unread. */

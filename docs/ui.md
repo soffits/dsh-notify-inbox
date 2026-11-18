@@ -9,13 +9,13 @@ From `@deepseek-ai/dsh-client-ui-primitives`, which DSH puts in every plugin's m
 | Piece | Where |
 |---|---|
 | `Button` (outline, small) | Mark all read, Mark unread, Show older, the ⋯ trigger |
-| `Pill` | The Needs you / All filters, as on the Automation page |
+| `Pill` | The Needs you / All / Unread filters, as on the Automation page |
 | `Menu`, `Tooltip` | The ⋯ menu: notifications on this device, a test push |
 | `StateDot` | The green dot on a live item |
 | `IconCheckCircleOutlineRegular`, `IconEllipsisOutlineRegular`, `IconSendOutlineRegular` | The handled check, the ⋯ trigger, the reply's Send |
 | Theme tokens (`--dsw-alias-*`) | Every colour, so light and dark follow the Web UI |
 
-The page's layout copies the numbers of DSH's own pages, since their CSS modules aren't shared: the frame (960 px column, 28 px top inset, `clamp(24px, 4vw, 48px)` sides) and rows (12 px radius, 8 px padding, 12 px gap, 13 px tertiary summary) of the Automation page, and the group headings (14 px medium title, count beside it) of the plugin manager.
+The page's layout copies the numbers of DSH's own pages, since their CSS modules aren't shared: the frame (960 px column, 28 px top inset, `clamp(24px, 4vw, 48px)` sides) and rows (12 px radius, 8 px padding, 12 px gap, 13 px tertiary summary) of the Automation page, and the group headings (14 px medium title, count beside it, shown in the Needs you view only) of the plugin manager.
 
 `test/client-names.test.js` checks every primitive the page takes against the export list of the oldest DSH it supports (`test/fixtures/`), so a wrong name fails a test instead of the page.
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LIVE_IDLE_MS, buildItems, countItems, groupOf, liveNow } from '../src/view.js'
+import { LIVE_IDLE_MS, buildItems, countItems, groupOf, inGroupOrder, liveNow } from '../src/view.js'
 import { attentionOf, normalize } from '../src/store.js'
 
 const NOW = Date.parse('2026-11-17T18:00:00Z')
@@ -23,12 +23,13 @@ test('a live item without an end stops being live after a quiet spell', () => {
   assert.deepEqual(groupOf(live, Date.parse(live.time) + LIVE_IDLE_MS + 1), { group: 'info', moved: 'ended' })
 })
 
-test('items are ordered by group, then newest first, and counted', () => {
+test('items are ordered newest first whatever their group, and counted; group order is a separate step', () => {
   const items = buildItems([
     row('i2', { time: '2026-11-17T17:30:00Z' }),
     row('n1', { lane: 'interrupt', time: '2026-11-17T17:10:00Z' }),
     row('i1', { time: '2026-11-17T17:00:00Z' }),
   ], NOW)
-  assert.deepEqual(items.map(item => item.id), ['n1', 'i2', 'i1'])
+  assert.deepEqual(items.map(item => item.id), ['i2', 'n1', 'i1'])
+  assert.deepEqual(inGroupOrder(items).map(item => item.id), ['n1', 'i2', 'i1'])
   assert.deepEqual(countItems(items), { groups: { urgent: 1, 'needs-you': 0, live: 0, handled: 0, info: 2 }, unread: 3 })
 })
