@@ -48,11 +48,15 @@ export const Config = z.object({
     .description('How each domain (the record\'s domain field) is drawn, on top of the built-in defaults (mail, money, health, travel, home...).'),
   summaryHours: z.natural().min(1).max(168).default(12)
     .description('How long the summary line (<dataDir>/<person>/summary.json) is shown after it was written.'),
+  replyCwd: z.string().default('')
+    .description('The folder of the new session a reply opens when the item names no conversation, or the one it names is gone or archived. Empty means the host default. A leading ~/ means the home folder.'),
+  replyPreset: z.string().default('')
+    .description('The agent preset of that new session. Empty means the host default.'),
 })
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, domains: Record<string, { icon: string, tone?: string }>, summaryHours: number }} config
+ * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, domains: Record<string, { icon: string, tone?: string }>, summaryHours: number, replyCwd: string, replyPreset: string }} config
  */
 export function apply(ctx, config) {
   const logger = ctx.logger('notify-inbox')
@@ -80,21 +84,63 @@ export function apply(ctx, config) {
   const localeDir = fileURLToPath(new URL('./locale/', import.meta.url))
   const strings = () => readLocales(localeDir).then(tables)
   // Replies reach sessions through DSH's own services, looked up when one is sent.
+  const replyCwd = config.replyCwd ? absolute(config.replyCwd) : ''
   const replyDeps = () => {
     const agents = ctx.get('agents')
     const controller = ctx.get('sessionController')
     const query = ctx.get('sessionQuery')
     if (agents === undefined || controller === undefined || query === undefined) return undefined
+    const flush = session => ctx.get('sessions')?.flush?.(session) ?? Promise.resolve(true)
     return {
       liveAgent: id => agents.get(id),
       resolveAgent: async id => {
         const found = await controller.resolveAgent(id)
-        if ('error' in found) throw Object.assign(new Error('The conversation that asked could not be opened.'), { status: 404 })
+        if ('error' in found) throw found.error instanceof Error ? found.error : new Error(String(found.error))
         return found.agent
       },
-      readHeader: async id => (await query.readSession(id))?.session,
-      flush: session => ctx.get('sessions')?.flush?.(session) ?? Promise.resolve(true),
+      readHeader: async id => {
+        try {
+          return (await query.readSession(id))?.session
+        } catch (error) {
+          if (error?.code === 'SESSION_QUERY_SESSION_NOT_FOUND') return undefined
+          throw error
+        }
+      },
+      ended: id => {
+        try {
+          return ctx.get('workspaceRegistry')?.archivedSessionIds?.includes(id) === true
+        } catch {
+          return false
+        }
+      },
+      // A new top-level session, the way a scheduled run with a new target opens one.
+      openSession: async ({ message, title }) => {
+        const { sessionId } = await controller.create({
+          ...(replyCwd ? { cwd: replyCwd } : {}),
+          ...(config.replyPreset ? { agentPreset: config.replyPreset } : {}),
+        })
+        const found = await controller.resolveAgent(sessionId)
+        if ('error' in found) throw found.error instanceof Error ? found.error : new Error(String(found.error))
+        const { agent } = found
+        if (replyCwd) {
+          try {
+            await (await ctx.get('workspaceRegistry')?.resolveByPath(replyCwd))?.attachSession(sessionId)
+          } catch (error) {
+            warn(`session ${sessionId} did not join the workspace at ${replyCwd}: ${error.message}`)
+          }
+        }
+        try {
+          ctx.get('sessionTitle')?.rename(agent.session, title)
+        } catch (error) {
+          warn(`session ${sessionId} was not named: ${error.message}`)
+        }
+        agent.followup(message)
+        if (!(await flush(agent.session))) throw new Error('the new conversation did not take the reply')
+        return sessionId
+      },
+      flush,
       detached: fn => (agents.withoutInitiator ? agents.withoutInitiator(fn) : fn()),
+      warn,
     }
   }
   const reply = async request => {

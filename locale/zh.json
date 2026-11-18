@@ -53,6 +53,7 @@
     "reply.send": "发送",
     "reply.sending": "正在发送…",
     "reply.sent": "已经发到那个对话里了。",
+    "reply.sentNew": "提问的那个对话已经不在了，所以发到了一个新对话里。",
     "reply.open": "打开对话",
     "reply.failed": "没发出去：{message}",
     "moved.closed": "已经处理好了。"

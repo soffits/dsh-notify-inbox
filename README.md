@@ -41,6 +41,8 @@ Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a pro
 | `vapidSubject` | `mailto:admin@example.invalid` | A contact push services can reach. Set your own. |
 | `domains` | `{}` | How each `domain` is drawn, on top of the built-in defaults (`mail`, `money`, `health`, `travel`, `home`, `orders`...): `{ "legal": { "icon": "scale", "tone": "violet" } }`. `icon` is a [Lucide](https://lucide.dev) name the kit bundles; `tone` (`ok`, `warn`, `bad`, `accent`, `violet`, `muted`) is usually left out, since an item's colour says what it needs. |
 | `summaryHours` | `12` | How long the summary line is shown after it was written. |
+| `replyCwd` | host default | The folder of the new session a reply opens when the ask names no session, or the one it names is gone (below). |
+| `replyPreset` | host default | The agent preset of that new session. |
 
 **Who sees what.** With a mapping, every request is checked on the server: a person sees, marks and presses only their own inbox, and a request without a verified identity sees nothing. The identity comes from any plugin that provides a `requestIdentity` service (`current()` → `{ provider, issuer, id, name } | null`), such as [dsh-oidc](https://github.com/soffits/dsh-oidc) 0.3.0-alpha.9 or later. Without a mapping (a DSH only you use), you see every folder.
 
@@ -67,7 +69,7 @@ Append one JSON object per line to `<dataDir>/<person>/inbox.jsonl` (person ids 
 - `routed`: where else the notification went and whether that worked; shown under the text.
 - `actions`: buttons, see below.
 - `attention`: the group, `urgent`, `needs-you`, `live`, `handled` or `info` ("To know"). Left out, it follows from the rest: `handled` when `handled` is set, `live` when `live` is, `urgent` for an interrupt, else `info`. An urgent item the person marked done moves to Handled, a snoozed one waits under To know until it comes back. `needs-you` is for asks (below).
-- `session`: the session that asked, for a notification that waits on the person's answer; the item then has a reply box (below).
+- `session`: the session that asked, for a notification that waits on the person's answer; a reply goes there (below).
 - `thread`: notifications with the same thread are one item, the newest on top and the older ones as its history (three reminders about one task).
 - `live`: `{ "until"?, "progress"?: { "from", "to" } }`. The thread's newest notification replaces the item in place, shown as live until `until` (or six hours after its last update), with a bar from `from` to `to`.
 - `handled`: `{ "text", "at"? }`, what was done for the person, shown as one quiet line with a check.
@@ -88,7 +90,8 @@ What waits on the person's answer (a decision, a pick, a small step for someone 
 
 - Each open ask is one item, whether or not a notification was ever filed about it. Notifications whose `thread` is the ask's `id` fold into it, and the ask's own buttons, title and `session` win. When the ask leaves the file it was settled where it lives: its notifications show as Handled ("Settled").
 - `points` (shown as a small "+3" beside the title) is what dealing with it earns where the list keeps such a game; leave it out otherwise. `next` and `due` are days.
-- With a `session`, the opened item has a reply box. `POST /api/notify-inbox/reply` (`{ record, text }`) checks the item is the caller's, then puts the words, with the ask quoted in, into that session through DSH's own steering (a running session sees them at its next step, an idle or stored one starts a turn), sent as the verified person (their sign-in's principal) or as the owner without a mapping; the conversation that asked carries on with the answer, and the page offers to open it. A finished helper (subagent) session can't take a reply.
+- Every opened ask has a reply box. `POST /api/notify-inbox/reply` (`{ record, text }`) checks the item is the caller's, then puts the words, with the ask quoted in, into its `session` through DSH's own steering (a running session sees them at its next step, an idle or stored one starts a turn), sent as the verified person (their sign-in's principal) or as the owner without a mapping; the conversation that asked carries on with the answer, and the page offers to open it.
+- When the ask names no session, or the one it names is gone, archived, can't be loaded or was a helper (subagent) that has finished, the reply opens a new top-level session instead (in `replyCwd`, with `replyPreset`), whose first message is the words with the whole ask quoted in and the session that asked named, so whoever reads it can act. The ask's `session` is the one that counts: a notification filed about it earlier may name one the ask has since dropped. The reply answers `{ session, fresh }` so the page can say where it went.
 - An ask that is a question lists its `options`; the writer gives each its own button (a `done` whose payload carries the answer), so a press answers it. One that is a task has a plain done.
 - A press on an ask's buttons is an action event like any other (`source.record` is the ask's id), for whatever keeps the list to act on.
 - Without `asks.json` nothing changes: notifications keep the group they were filed with.

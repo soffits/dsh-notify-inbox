@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- A reply never dead-ends: when the ask names no session, or the one it names is gone, archived, can't be loaded or was a finished helper, it opens a new top-level session with the whole ask quoted in and the session that asked named, so someone can act on it. New options `replyCwd` and `replyPreset` say where that session starts. Every ask has a reply box now, not only those that name a session.
+- The ask's `session` is the one that counts, also when it has none: a notification filed earlier no longer sends a reply to a session the ask has dropped.
+
 ## 0.7.0
 
 - A reply is sent by the server: `POST /api/notify-inbox/reply` checks the item is yours and steers the session that asked, as you, with the ask quoted in. Before, the page sent it through the browser, which could stall on a long conversation and never arrive.

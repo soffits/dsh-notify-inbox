@@ -426,21 +426,29 @@ test('the events stream tells an open page when its own inbox changed, and only 
 })
 
 test('a reply goes to the session the ask names, as the verified person, and only for your own items', async () => {
-  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you', session: 'session-old' }), record('a2'))
+  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you', session: 'session-old' }), record('a2'),
+    record('a3', { thread: 'todo:2', attention: 'needs-you', session: 'session-old' }), record('a4', { session: 'session-x' }))
   await asks('ana', ask('todo:1'), ask('todo:2', { session: null }))
   const sent = []
-  const { as, call } = setup({ reply: async request => { sent.push(request); return { session: request.session, woke: true } } })
+  const { as, call } = setup({ reply: async request => { sent.push(request); return { session: request.session ?? 'session-new', woke: true, fresh: request.session === undefined } } })
   as(ANA_SUB)
   const ok = await call('reply', { record: 'a1', text: 'The white one' })
-  assert.deepEqual([ok.status, ok.body.session], [200, 'session-abc'])
+  assert.deepEqual([ok.status, ok.body.session, ok.body.fresh], [200, 'session-abc', false])
   assert.equal(sent[0].words, 'The white one')
-  assert.deepEqual(sent[0].item, { id: 'a1', title: 'Title a1', text: 'Text a1', thread: 'todo:1', ask: 'todo:1' })
+  assert.deepEqual(sent[0].item, { id: 'a1', title: 'Ask todo:1', text: 'Text a1\n\nWhich one, todo:1?', thread: 'todo:1', ask: 'todo:1' })
   assert.deepEqual(sent[0].identity, { provider: 'oidc', issuer: 'https://id.example', id: ANA_SUB })
-  assert.equal((await call('reply', { record: 'todo:2', text: 'x' })).status, 400, 'an ask without a session takes no reply')
-  assert.equal((await call('reply', { record: 'a2', text: 'x' })).status, 400)
+  const fresh = await call('reply', { record: 'todo:2', text: 'x' })
+  assert.deepEqual([fresh.status, fresh.body.session, fresh.body.fresh], [200, 'session-new', true], 'an ask without a session opens a new one')
+  assert.equal(sent[1].session, undefined)
+  assert.deepEqual(sent[1].item, { id: 'todo:2', title: 'Ask todo:2', text: 'Which one, todo:2?', thread: 'todo:2', ask: 'todo:2' })
+  await call('reply', { record: 'a3', text: 'x' })
+  assert.equal(sent[2].session, undefined, 'the ask says who asked, not an older notification about it')
+  assert.equal((await call('reply', { record: 'a4', text: 'x' })).status, 200, 'a plain notification that names a session')
+  assert.equal(sent[3].session, 'session-x')
+  assert.equal((await call('reply', { record: 'a2', text: 'x' })).status, 400, 'neither an ask nor a session')
   as(BO_SUB)
   assert.equal((await call('reply', { record: 'a1', text: 'x' })).status, 404)
-  assert.equal(sent.length, 1)
+  assert.equal(sent.length, 4)
 })
 
 test('the words are read for each request and never cached', async () => {

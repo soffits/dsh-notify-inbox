@@ -53,6 +53,7 @@
     "reply.send": "Envoyer",
     "reply.sending": "Envoi…",
     "reply.sent": "Envoyé dans la conversation.",
+    "reply.sentNew": "Envoyé dans une nouvelle conversation : celle qui demandait n’est plus ouverte.",
     "reply.open": "L’ouvrir",
     "reply.failed": "Envoi impossible : {message}",
     "moved.closed": "Réglé."

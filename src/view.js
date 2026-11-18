@@ -64,7 +64,8 @@ function askItem(ask, record) {
     text: record === undefined || record.text === '' ? ask.text : record.text,
     actions: [...base.actions.filter(action => action.kind !== 'done' && action.kind !== 'snooze'), ...ask.actions],
     attention: 'needs-you',
-    session: ask.session ?? base.session,
+    // The ask says who asked; a notification about it may name a session the ask has since dropped.
+    session: ask.session,
     ask: { id: ask.id, points: ask.points, next: ask.next, due: ask.due, text: ask.text },
     read: record === undefined ? ask.read : base.read,
   }
