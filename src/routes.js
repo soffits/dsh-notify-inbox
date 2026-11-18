@@ -6,7 +6,8 @@
  *   GET  /api/notify-inbox/summary                   counts per group, unread, the summary line, the domain map
  *   GET  /api/notify-inbox/items?view=needs-you&keep=&before=&limit=
  *   GET  /api/notify-inbox/events                    text/event-stream: a notice whenever the caller's inbox changed
- *   POST /api/notify-inbox/reply                     { record, text }  a reply to an ask, put into the session that asked (or a new one)
+ *   POST /api/notify-inbox/reply                     { record, text }  a reply to an ask: logged on the ask through its writer, then put into the session that asked (or a new one)
+ *   POST /api/notify-inbox/undo                      { press }  take one of the caller's presses back through the inverse it declared
  *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
  *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press (record: a
  *                                                    record id or an ask's id; an ask's own buttons win in its thread)
@@ -23,6 +24,8 @@ import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { viewerOf } from './access.js'
 import { EMITTING } from './actions.js'
+import { answerOf } from './answers.js'
+import { MAX_REPLY } from './reply.js'
 import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
 import { buildItems, countItems, inGroupOrder } from './view.js'
 
@@ -98,7 +101,12 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
   async function withPresses(who, items) {
     const byPerson = new Map()
     for (const person of new Set(items.map(item => item.person))) byPerson.set(person, await actions.presses(person))
-    return items.map(item => ({ ...item, presses: byPerson.get(item.person)?.get(item.id) ?? [] }))
+    return items.map(item => {
+      const logged = byPerson.get(item.person)
+      const ids = new Set([item.id, ...item.ids, item.thread, ...(item.ask ? [item.ask.id] : [])].filter(Boolean))
+      const presses = [...ids].flatMap(id => logged?.get(id) ?? []).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+      return { ...item, presses, answer: answerOf({ ...item, presses }) }
+    })
   }
 
   /** The caller's items, folded and grouped as of now. */
@@ -230,12 +238,36 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     if (reply === undefined) return json(503, { error: 'Replies need a DSH that lets plugins reach its sessions.' })
     const text = ask !== undefined && ask.text && ask.text !== record.text ? [record.text, ask.text].filter(Boolean).join('\n\n') : record.text
     try {
-      const sent = await reply({ session, words: value.text, item: { id: record.id, title: ask?.title ?? record.title, text, thread: record.thread, ask: ask?.id }, identity: identity()?.current?.() ?? undefined })
+      const words = String(value.text ?? '').trim()
+      if (words === '') return json(400, { error: 'Write a reply first.' })
+      if (words.length > MAX_REPLY) return json(413, { error: `A reply is at most ${MAX_REPLY} characters.` })
+      // The words go to the item's source first, through its writer, so they are on the ask whatever a conversation does with them.
+      const logged = await actions.say(record.person, record, words)
       await store.setRead(record.person, [record.id], true)
-      return json(200, { ok: true, session: sent.session, woke: sent.woke, fresh: sent.fresh === true })
+      try {
+        const sent = await reply({ session, words, item: { id: record.id, title: ask?.title ?? record.title, text, thread: record.thread, ask: ask?.id, ...(ask?.how ? { how: ask.how } : {}) }, identity: identity()?.current?.() ?? undefined })
+        return json(200, { ok: true, press: logged.event.press, logged: logged.published, session: sent.session, woke: sent.woke, fresh: sent.fresh === true })
+      } catch (error) {
+        return json(200, { ok: true, press: logged.event.press, logged: logged.published, delivered: false, error: error.message })
+      }
     } catch (error) {
       return json(error.status ?? 502, { error: error.message })
     }
+  })
+
+  /** Take one of the caller's own presses back, through the inverse it declared. */
+  const undo = handle(async (request, who) => {
+    const value = await body(request)
+    if (typeof value.press !== 'string' || !/^[0-9a-f]{12}$/.test(value.press)) return json(400, { error: 'Name the press to take back.' })
+    for (const person of who.folders) {
+      try {
+        const result = await actions.undo(person, value.press)
+        return json(200, { press: result.event.press, published: result.published })
+      } catch (error) {
+        if (error.status !== 404) return json(error.status ?? 500, { error: error.message })
+      }
+    }
+    return json(404, { error: 'No such press.' })
   })
 
   const file = handle(async (request, who) => {
@@ -296,6 +328,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     post('/read', read),
     post('/action', action),
     post('/reply', answer),
+    post('/undo', undo),
     get('/file', file),
     get('/push/config', pushConfig),
     post('/push/state', pushState),

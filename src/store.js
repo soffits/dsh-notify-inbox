@@ -23,6 +23,7 @@ const INBOX = 'inbox.jsonl'
 const READ = 'read.json'
 const SUMMARY = 'summary.json'
 const ASKS = 'asks.json'
+const MAX_HOW = 600
 
 const text = value => (typeof value === 'string' ? value : '')
 const list = value => (Array.isArray(value) ? value : [])
@@ -97,8 +98,17 @@ export function normalizeAsk(raw, person) {
     due: day(raw.due),
     points: Number.isFinite(raw.points) && raw.points > 0 ? Math.round(raw.points) : null,
     session: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(text(raw.session)) ? raw.session : null,
+    since: isoTime(raw.since),
+    how: text(raw.how).trim().slice(0, MAX_HOW) || undefined,
+    replied: repliedOf(raw.replied),
     actions: actionsOf(raw.actions),
   }
+}
+
+/** The person's newest reply as their ask's owner logged it: `{ at, text }`, or null. */
+function repliedOf(raw) {
+  const at = isoTime(raw?.at)
+  return at === undefined || text(raw.text) === '' ? null : { at, text: text(raw.text).slice(0, MAX_HOW) }
 }
 
 /** A record as the page gets it, or undefined when the line is not one. */

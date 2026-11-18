@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+- Answering an item now shows. A choice, a done, a snooze or a reply turns the item into a line saying what you did and how far it has got (sending, applied, "your reply is on the ask, being handled"), the answering buttons and the reply box give way to it, and the next item that needs you opens and takes focus, so Needs you works like a list you go through one by one. When the ask closes, the row stays in place, settled, with Undo where the button had a way back, until you leave the view. If nobody took the answer in two minutes, or nobody closed the ask ten minutes after a reply, the line says so and the buttons come back; English, French and Chinese.
+- A reply reaches the ask itself: it is an action event of its own (`reply`, published on `ui.action.reply`) that the ask's writer logs, before it goes to a conversation, and the conversation's message names how to settle the ask (`how` in `asks.json`, with `since` and `replied`, which let the page tell whether the words arrived). A reply whose conversation cannot be reached is still on the ask and says so. Before, the words existed only in whatever conversation took them, and the page could not tell whether anything had happened.
+- `POST /api/notify-inbox/undo` takes one of your presses back through the inverse it declared.
+- Presses now keep their `inverse` in `actions.jsonl`.
+
 ## 0.10.0
 
 - **All** lists items strictly by time, newest first, whatever group they are in. Before, it was cut into sections (Urgent, Needs you, Live, …), so a newer notification could sit below an older one. The group still shows on each item's icon.

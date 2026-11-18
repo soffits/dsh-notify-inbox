@@ -26,6 +26,52 @@ export function actionEvent(action, { person, record, payload = {}, at = new Dat
     at: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     source: { plugin: 'notify-inbox', record: record.id, key: record.key || undefined, domain: record.domain || undefined },
     press,
+    ...(action.inverse === undefined ? {} : { inverse: action.inverse }),
+  }
+}
+
+export const REPLY_MAX_LOGGED = 8000
+
+/**
+ * The event a typed reply becomes: the person's own words about an item, addressed to whatever writes the
+ * item's source (the payload of its buttons names it) so the words land there whoever reads them.
+ */
+export function replyEvent({ person, record, words, writer = {}, at = new Date(), press = randomBytes(6).toString('hex') }) {
+  return {
+    action: 'reply',
+    id: 'reply',
+    payload: { ...writer, text: String(words).trim().slice(0, REPLY_MAX_LOGGED) },
+    person,
+    at: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    source: { plugin: 'notify-inbox', record: record.id, key: record.key || undefined, domain: record.domain || undefined },
+    press,
+  }
+}
+
+/** The way an item's buttons address their source (`payload.source` and what goes with it), from the first that has one. */
+export function writerOf(actions) {
+  for (const action of actions ?? []) {
+    const { source, uuid, person } = action.payload ?? {}
+    if (typeof source === 'string' && source !== '') return { source, ...(uuid === undefined ? {} : { uuid }), ...(person === undefined ? {} : { person }) }
+  }
+  return {}
+}
+
+/** The event that takes a logged press back through the inverse it declared. */
+export function undoEvent(press, { at = new Date(), id = randomBytes(6).toString('hex') } = {}) {
+  const { payload: wasPayload = {}, inverse } = press
+  const { until: _picked, ...payload } = wasPayload
+  return {
+    action: 'undo',
+    id: press.id,
+    of: press.action,
+    undoes: press.press,
+    inverse: inverse.kind,
+    payload: { ...payload, ...(inverse.payload ?? {}) },
+    person: press.person,
+    at: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    source: press.source,
+    press: id,
   }
 }
 
@@ -55,36 +101,69 @@ export function createActions({ dataDir, events, warn }) {
     }
   }
 
-  async function press(person, record, action, extra) {
-    if (!EMITTING.includes(action.kind)) throw new Error('This button acts in the page.')
-    const event = actionEvent(action, { person, record, payload: pressPayload(action.kind, extra) })
-    await mkdir(join(dataDir, person), { recursive: true })
-    await appendFile(join(dataDir, person, ACTIONS_LOG), `${JSON.stringify(event)}\n`, { mode: 0o600 })
+  async function record(event) {
+    await mkdir(join(dataDir, event.person), { recursive: true })
+    await appendFile(join(dataDir, event.person, ACTIONS_LOG), `${JSON.stringify(event)}\n`, { mode: 0o600 })
     return { event, ...publish(event) }
   }
 
-  /** This person's presses by record id: `[{ press, action, at }]`. */
-  async function presses(person) {
-    let lines
+  async function press(person, record_, action, extra) {
+    if (!EMITTING.includes(action.kind)) throw new Error('This button acts in the page.')
+    return record(actionEvent(action, { person, record: record_, payload: pressPayload(action.kind, extra) }))
+  }
+
+  /** A typed reply, logged and published like a press so its owner writes it down. */
+  async function say(person, record_, words) {
+    return record(replyEvent({ person, record: record_, words, writer: writerOf(record_.actions) }))
+  }
+
+  /** The logged lines of this person, as written. */
+  async function lines(person) {
+    let text
     try {
-      lines = (await readFile(join(dataDir, person, ACTIONS_LOG), 'utf8')).split('\n')
+      text = await readFile(join(dataDir, person, ACTIONS_LOG), 'utf8')
     } catch {
-      return new Map()
+      return []
     }
-    const out = new Map()
-    for (const line of lines) {
-      if (line.trim() === '') continue
+    return text.split('\n').flatMap(line => {
       try {
-        const event = JSON.parse(line)
-        const id = event?.source?.record
-        if (typeof id !== 'string') continue
-        out.set(id, [...(out.get(id) ?? []), { press: event.press, action: event.action, id: event.id, at: event.at, until: event.payload?.until }])
+        return line.trim() === '' ? [] : [JSON.parse(line)]
       } catch {
-        // A torn line is skipped.
+        return [] // A torn line is skipped.
       }
+    })
+  }
+
+  /** Take a logged press back: its inverse becomes an `undo` event. Throws with a status when it cannot be. */
+  async function undo(person, pressId) {
+    const all = await lines(person)
+    const found = all.find(event => event.press === pressId && event.action !== 'undo')
+    if (found === undefined) throw Object.assign(new Error('No such press.'), { status: 404 })
+    if (typeof found.inverse?.kind !== 'string') throw Object.assign(new Error('This cannot be taken back.'), { status: 400 })
+    if (all.some(event => event.action === 'undo' && event.undoes === pressId)) throw Object.assign(new Error('Already taken back.'), { status: 409 })
+    return record(undoEvent(found))
+  }
+
+  /** This person's presses by record id: `[{ press, action, id, at, answer?, text?, until?, inverse?, undoes? }]`. */
+  async function presses(person) {
+    const out = new Map()
+    for (const event of await lines(person)) {
+      const id = event?.source?.record
+      if (typeof id !== 'string') continue
+      out.set(id, [...(out.get(id) ?? []), {
+        press: event.press,
+        action: event.action,
+        id: event.id,
+        at: event.at,
+        until: event.payload?.until,
+        answer: typeof event.payload?.answer === 'string' ? event.payload.answer : undefined,
+        text: event.action === 'reply' && typeof event.payload?.text === 'string' ? event.payload.text : undefined,
+        inverse: event.inverse,
+        undoes: event.undoes,
+      }])
     }
     return out
   }
 
-  return { press, presses }
+  return { press, say, undo, presses }
 }

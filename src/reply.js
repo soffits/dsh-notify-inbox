@@ -2,7 +2,7 @@
  * A reply to an ask, put into the session that asked, or into a new one.
  *
  * The page posts the person's words; the route has already checked the item is
- * theirs. The words, with the item quoted in the format the UI actions package
+ * theirs. The words, with the item quoted (and, for an ask, how to settle it, as its owner says) in the format the UI actions package
  * reads back as a card, go into the session that asked through DSH's own
  * steering: a running session sees them at its next step, an idle or stored
  * one is loaded and starts a turn with them. When the item names no session,
@@ -21,6 +21,7 @@ export const MAX_REPLY = 8000
 const QUOTED_LINES = 12
 const FRESH_LINES = 60
 const LINE_MAX = 300
+const HOW_MAX = 600
 
 /**
  * @typedef {object} Deps
@@ -50,6 +51,8 @@ export function quote(item, { fresh = false } = {}) {
     const text = oneLine(line, LINE_MAX)
     if (text !== '') lines.push(text)
   }
+  // How to settle the ask comes from the ask's owner and always goes in, whatever the quote's length.
+  if (item.how) lines.push(`How to settle it: ${oneLine(item.how, HOW_MAX)}`)
   const context = { notification: item.id, ask: item.ask, thread: item.thread || undefined }
   if (fresh && item.asked) context.asked = item.asked
   lines.push(`context: ${JSON.stringify(context)}`)

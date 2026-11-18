@@ -10,6 +10,7 @@ import { createChanges } from '../src/changes.js'
 import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'
 import { createRoutes } from '../src/routes.js'
+import { quote } from '../src/reply.js'
 import { createStore } from '../src/store.js'
 import { b64url } from '../src/webpush.js'
 
@@ -506,4 +507,96 @@ test('Unread lists only unread items in time order, and keeps what the page alre
   assert.deepEqual((await call('items?view=unread')).body.items.map(item => item.id), ['a4', 'a1'])
   const keep = shown.map(item => item.key).join(',')
   assert.deepEqual((await call(`items?view=unread&keep=${keep}`)).body.items.map(item => item.id), ['a4', 'a2', 'a1'], 'a read item stays where it was until the view is left')
+})
+
+const ASK_ANSWER = (n, answer) => ({ kind: 'done', id: `answer-${n}`, label: answer, payload: { source: 'todo', uuid: 'u1', person: 'ana', answer }, inverse: { kind: 'reopen', payload: {} } })
+const SINCE = '2026-11-17T14:00:00Z'
+const readLog = async () => (await readFile(join(dir, 'ana', 'actions.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+
+test('a reply is an event for the ask’s own writer before it is a message, and the session is told how to settle it', async () => {
+  await asks('ana', ask('todo:1', { how: 'Todo 1. Close it with `done 1`.', actions: [ASK_ANSWER(1, 'Skip it')] }))
+  const sent = []
+  const { as, call, emitted } = setup({ reply: async request => { sent.push(request); return { session: 'session-abc', woke: true, fresh: false } } })
+  as(ANA_SUB)
+  const ok = await call('reply', { record: 'todo:1', text: '  update now, no worries ' })
+  assert.deepEqual([ok.status, ok.body.logged, ok.body.session], [200, true, 'session-abc'])
+  assert.equal(emitted[0].channel, 'ui.action.reply')
+  assert.deepEqual([emitted[0].data.action, emitted[0].data.person, emitted[0].data.source.record], ['reply', 'ana', 'todo:1'])
+  assert.deepEqual(emitted[0].data.payload, { source: 'todo', uuid: 'u1', person: 'ana', text: 'update now, no worries' }, 'addressed to the writer the ask’s buttons name')
+  assert.equal(sent[0].item.how, 'Todo 1. Close it with `done 1`.')
+  assert.equal((await readLog()).length, 1)
+  const failing = setup({ reply: async () => { throw new Error('no conversation') } })
+  failing.as(ANA_SUB)
+  const lost = await failing.call('reply', { record: 'todo:1', text: 'again' })
+  assert.deepEqual([lost.status, lost.body.logged, lost.body.delivered, lost.body.error], [200, true, false, 'no conversation'], 'the words are on the ask even when no conversation took them')
+  assert.equal((await failing.call('reply', { record: 'todo:1', text: '  ' })).status, 400)
+  assert.equal((await readLog()).length, 2, 'a refused reply logs nothing')
+})
+
+test('the quote names how to settle the ask, however long the item is', () => {
+  const long = { id: 'r1', title: 'T', text: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n'), thread: 'todo:1', ask: 'todo:1', how: 'Todo 1. Close it.' }
+  for (const fresh of [false, true]) {
+    const lines = quote(long, { fresh }).split('\n')
+    assert.ok(lines.includes('> How to settle it: Todo 1. Close it.'), `fresh ${fresh}`)
+    assert.match(lines.at(-1), /^> context: /)
+  }
+  assert.doesNotMatch(quote({ ...long, how: undefined }), /How to settle/)
+})
+
+test('an answered ask says what the person did and how far it got, from the sources and never a copy', async () => {
+  await asks('ana', ask('todo:1', { since: SINCE, actions: [ASK_ANSWER(1, 'Update after I’m back'), ASK_ANSWER(2, 'Skip it')] }))
+  const { as, call } = setup({ reply: async () => ({ session: 'session-abc', woke: true, fresh: false }) })
+  as(ANA_SUB)
+  const answer = async () => (await call('items')).body.items[0].answer
+  assert.equal(await answer(), null)
+  await call('action', { record: 'todo:1', action: 'answer-2' })
+  const chosen = await answer()
+  assert.deepEqual([chosen.kind, chosen.label, chosen.received, chosen.undoable], ['choice', 'Skip it', false, true])
+  assert.equal(Date.parse(chosen.applyBy) - Date.parse(chosen.at), 2 * 60 * 1000)
+  // A reply arrives on the ask only when the ask's owner says so (`replied`).
+  await call('reply', { record: 'todo:1', text: 'update now' })
+  let reply = await answer()
+  assert.deepEqual([reply.kind, reply.text, reply.received, reply.undoable], ['reply', 'update now', false, false])
+  assert.equal(Date.parse(reply.settleBy) - Date.parse(reply.at), 10 * 60 * 1000)
+  await asks('ana', ask('todo:1', { since: SINCE, replied: { at: new Date(Date.now() + 1000).toISOString(), text: 'update now' }, actions: [] }))
+  reply = await answer()
+  assert.deepEqual([reply.received, reply.text], [true, 'update now'])
+  // What was said before the ask last came back belongs to the earlier showing.
+  await asks('ana', ask('todo:1', { since: new Date(Date.now() + 60000).toISOString(), actions: [] }))
+  assert.equal(await answer(), null)
+})
+
+test('a press taken back is no longer the answer, and a closed ask keeps what the person chose', async () => {
+  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }))
+  await asks('ana', ask('todo:1', { actions: [ASK_ANSWER(1, 'Skip it')] }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const pressed = await call('action', { record: 'todo:1', action: 'answer-1' })
+  await asks('ana')
+  const [closed] = (await call('items')).body.items
+  assert.deepEqual([closed.group, closed.moved, closed.answer.label], ['handled', 'closed', 'Skip it'])
+  const undone = await call('undo', { press: pressed.body.press })
+  assert.equal(undone.status, 200)
+  const [back] = (await call('items')).body.items
+  assert.equal(back.answer, null)
+})
+
+test('an undo is the inverse the press declared, once, for the person who pressed', async () => {
+  await asks('ana', ask('todo:1', { actions: [ASK_ANSWER(1, 'Skip it'), { kind: 'snooze', id: 'snooze', payload: { source: 'todo', uuid: 'u1' } }] }))
+  const { as, call, emitted } = setup()
+  as(ANA_SUB)
+  const first = await call('action', { record: 'todo:1', action: 'answer-1' })
+  const plain = await call('action', { record: 'todo:1', action: 'snooze', until: '2026-11-19T09:00:00-05:00' })
+  assert.equal((await call('undo', { press: plain.body.press })).status, 400, 'a snooze with no declared way back')
+  const undone = await call('undo', { press: first.body.press })
+  assert.equal(undone.status, 200)
+  const event = emitted.at(-1)
+  assert.equal(event.channel, 'ui.action.undo')
+  assert.deepEqual([event.data.undoes, event.data.of, event.data.inverse, event.data.person], [first.body.press, 'done', 'reopen', 'ana'])
+  assert.deepEqual(event.data.payload, { source: 'todo', uuid: 'u1', person: 'ana', answer: 'Skip it' })
+  assert.equal((await call('undo', { press: first.body.press })).status, 409)
+  assert.equal((await call('undo', { press: 'abcdefabcdef' })).status, 404)
+  assert.equal((await call('undo', { press: 'nope' })).status, 400)
+  as(BO_SUB)
+  assert.equal((await call('undo', { press: first.body.press })).status, 404, 'only your own presses')
 })
