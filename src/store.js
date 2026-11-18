@@ -6,8 +6,6 @@
  *   <dataDir>/<person>/files/<id>/<name> attachments the router copied in
  *   <dataDir>/<person>/read.json        read marks; written by this plugin only
  *   <dataDir>/<person>/summary.json     the line shown above the items; written by the router's side
- *   <dataDir>/<person>/asks.json        what waits on the person's answer now; written by whatever keeps their
- *                                       list of asks (a Todo), read fresh each time
  *
  * Records are re-read incrementally: only the bytes appended since the last
  * look are parsed, and the whole file again when it shrank or was replaced
@@ -22,17 +20,14 @@ export const RECORD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
 const INBOX = 'inbox.jsonl'
 const READ = 'read.json'
 const SUMMARY = 'summary.json'
-const ASKS = 'asks.json'
-const MAX_HOW = 600
 
 const text = value => (typeof value === 'string' ? value : '')
 const list = value => (Array.isArray(value) ? value : [])
 /** Text a person reads: a string, or a map from language tag to text (the page picks the language). */
 const words = value => (typeof value === 'string' ? value : value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(v => typeof v === 'string') ? value : '')
 
-export const GROUPS = ['urgent', 'needs-you', 'live', 'handled', 'info']
+export const GROUPS = ['urgent', 'live', 'handled', 'info']
 const MAX_THREAD = 120
-const MAX_ASK_TEXT = 8000
 
 const isoTime = value => {
   const at = Date.parse(text(value))
@@ -62,8 +57,8 @@ function handledOf(raw) {
 
 /**
  * The group a record belongs in. A writer usually says (`attention`); for a record that doesn't,
- * the same default the router documents: handled, then live, then urgent for an interrupt, else info.
- * Needs-you is never a default: it is for asks (see `asks`).
+ * (or names a group this inbox doesn't have), the same default the router documents: handled, then
+ * live, then urgent for an interrupt, else info.
  */
 export function attentionOf(record) {
   if (GROUPS.includes(record.attention)) return record.attention
@@ -80,36 +75,6 @@ const actionsOf = raw => list(raw).filter(action => typeof action?.kind === 'str
   payload: typeof action.payload === 'object' && action.payload !== null && !Array.isArray(action.payload) ? action.payload : {},
   ...(typeof action.inverse?.kind === 'string' ? { inverse: { kind: action.inverse.kind, payload: typeof action.inverse.payload === 'object' && action.inverse.payload !== null ? action.inverse.payload : {} } } : {}),
 }))
-
-/** One entry of `asks.json` as the page gets it, or undefined when it is not one. */
-export function normalizeAsk(raw, person) {
-  if (typeof raw !== 'object' || raw === null || !RECORD_ID_PATTERN.test(text(raw.id))) return undefined
-  const time = isoTime(raw.time)
-  if (time === undefined || text(raw.title).trim() === '') return undefined
-  const day = value => (/^\d{4}-\d{2}-\d{2}$/.test(text(value)) ? value : undefined)
-  return {
-    id: raw.id,
-    person,
-    time,
-    title: text(raw.title),
-    text: text(raw.text).slice(0, MAX_ASK_TEXT),
-    domain: text(raw.domain),
-    next: day(raw.next),
-    due: day(raw.due),
-    points: Number.isFinite(raw.points) && raw.points > 0 ? Math.round(raw.points) : null,
-    session: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(text(raw.session)) ? raw.session : null,
-    since: isoTime(raw.since),
-    how: text(raw.how).trim().slice(0, MAX_HOW) || undefined,
-    replied: repliedOf(raw.replied),
-    actions: actionsOf(raw.actions),
-  }
-}
-
-/** The person's newest reply as their ask's owner logged it: `{ at, text }`, or null. */
-function repliedOf(raw) {
-  const at = isoTime(raw?.at)
-  return at === undefined || text(raw.text) === '' ? null : { at, text: text(raw.text).slice(0, MAX_HOW) }
-}
 
 /** A record as the page gets it, or undefined when the line is not one. */
 export function normalize(raw, person) {
@@ -279,20 +244,6 @@ export function createStore(dataDir) {
     return { records: entry.records, handled: entry.handled, bad: entry.bad }
   }
 
-  /**
-   * What waits on this person now, read fresh from `<person>/asks.json`: `{ present, asks }`. Without the
-   * file nothing is said about asks and records keep their own groups; with it, it alone says what needs them.
-   */
-  async function asks(person) {
-    let value
-    try {
-      value = JSON.parse(await readFile(join(dataDir, person, ASKS), 'utf8'))
-    } catch {
-      return { present: false, asks: [] }
-    }
-    return { present: true, asks: list(value?.asks).map(raw => normalizeAsk(raw, person)).filter(Boolean) }
-  }
-
   async function marks(person) {
     try {
       const value = JSON.parse(await readFile(join(dataDir, person, READ), 'utf8'))
@@ -313,7 +264,7 @@ export function createStore(dataDir) {
    * Each list keeps only what the watermark doesn't already say.
    */
   async function setRead(person, ids, value) {
-    const byId = new Map([...(await asks(person)).asks, ...(await records(person)).records].map(row => [row.id, row]))
+    const byId = new Map((await records(person)).records.map(row => [row.id, row]))
     const current = await marks(person)
     const read = new Set(current.read)
     const unread = new Set(current.unread)
@@ -340,23 +291,20 @@ export function createStore(dataDir) {
   }
 
   /**
-   * The records of these people, newest first, each with `read` and the `outcomes` of presses on it, and
-   * their asks by person (`{ present, asks }`, each ask with `read`).
+   * The records of these people, newest first, each with `read` and the `outcomes` of presses on it.
    */
   async function view(people) {
     const out = []
-    const asking = new Map()
     let bad = 0
     for (const person of people) {
-      const [{ records: rows, handled, bad: skipped }, marked, open] = await Promise.all([records(person), marks(person), asks(person)])
+      const [{ records: rows, handled, bad: skipped }, marked] = await Promise.all([records(person), marks(person)])
       bad += skipped
       const byRecord = new Map()
       for (const status of handled) byRecord.set(status.record, [...(byRecord.get(status.record) ?? []), status])
       for (const record of rows) out.push({ ...record, read: isRead(marked, record), outcomes: byRecord.get(record.id) ?? [] })
-      asking.set(person, { present: open.present, asks: open.asks.map(ask => ({ ...ask, read: isRead(marked, ask), outcomes: byRecord.get(ask.id) ?? [] })) })
     }
     out.sort((a, b) => (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
-    return { items: out, asks: asking, bad }
+    return { items: out, bad }
   }
 
   /**
@@ -391,5 +339,5 @@ export function createStore(dataDir) {
     return undefined
   }
 
-  return { persons, records, asks, marks, setRead, markAllRead, view, summaryLine, file }
+  return { persons, records, marks, setRead, markAllRead, view, summaryLine, file }
 }

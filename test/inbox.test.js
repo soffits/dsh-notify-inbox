@@ -10,7 +10,6 @@ import { createChanges } from '../src/changes.js'
 import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'
 import { createRoutes } from '../src/routes.js'
-import { quote } from '../src/reply.js'
 import { createStore } from '../src/store.js'
 import { b64url } from '../src/webpush.js'
 
@@ -30,7 +29,7 @@ async function file(person, ...rows) {
   await appendFile(join(dir, person, 'inbox.jsonl'), rows.map(row => `${typeof row === 'string' ? row : JSON.stringify(row)}\n`).join(''))
 }
 
-function setup({ mapping = true, provider = true, events, reply, quiet = [] } = {}) {
+function setup({ mapping = true, provider = true, events, quiet = [] } = {}) {
   let current = null
   const identity = { current: () => current }
   const as = id => { current = id === null ? null : { provider: 'oidc', issuer: 'https://id.example', id } }
@@ -44,7 +43,7 @@ function setup({ mapping = true, provider = true, events, reply, quiet = [] } = 
   const emitted = []
   const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
   const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
-  const routes = createRoutes({ store, people, push, actions, changes, reply, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
+  const routes = createRoutes({ store, people, push, actions, changes, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -119,59 +118,6 @@ test('mark unread works on its own and past the mark-all watermark; mark-all cle
   await call('read', { ids: ['a2'], read: false })
   await call('read', { all: true })
   assert.equal((await call('summary')).body.unread, 0)
-})
-
-const ASK_DONE = { kind: 'done', id: 'done', payload: { source: 'todo', uuid: 'u1' }, inverse: { kind: 'reopen', payload: {} } }
-const ask = (id, extra = {}) => ({ id, title: `Ask ${id}`, text: `Which one, ${id}?`, time: '2026-11-17T14:00:00Z', points: 3, session: 'session-abc', domain: 'todo', actions: [ASK_DONE], ...extra })
-const asks = async (person, ...rows) => {
-  await mkdir(join(dir, person), { recursive: true })
-  await writeFile(join(dir, person, 'asks.json'), JSON.stringify({ v: 1, person, asks: rows }))
-}
-
-test('the asks file decides Needs you: open asks show with or without a record, a closed one is handled', async () => {
-  await file('ana',
-    record('a1', { thread: 'todo:1', attention: 'needs-you', actions: [], session: 'session-old' }),
-    record('a2', { thread: 'todo:2', attention: 'needs-you', time: '2026-11-17T16:00:00Z' }),
-    record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }),
-    record('a4', { lane: 'interrupt', attention: 'needs-you', actions: [], time: '2026-11-17T13:00:00Z' }))
-  await asks('ana', ask('todo:1'), ask('todo:3', { title: 'Only in the list', points: 5, next: '2026-11-18' }))
-  const { as, call } = setup()
-  as(ANA_SUB)
-  const items = (await call('items')).body.items
-  assert.deepEqual(items.map(item => [item.id, item.group, item.moved]),
-    [['a3', 'info', null], ['a2', 'handled', 'closed'], ['a1', 'needs-you', null], ['todo:3', 'needs-you', null], ['a4', 'urgent', null]])
-  const one = items.find(item => item.id === 'a1')
-  assert.deepEqual([one.title, one.session, one.ask.points, one.actions.map(a => a.kind)], ['Ask todo:1', 'session-abc', 3, ['done']])
-  const only = items.find(item => item.id === 'todo:3')
-  assert.deepEqual([only.text, only.ask.points, only.ask.next, only.read], ['Which one, todo:3?', 5, '2026-11-18', false])
-  assert.equal((await call('summary')).body.groups['needs-you'], 2)
-  await call('read', { ids: ['todo:3'] })
-  assert.equal((await call('items')).body.items.find(item => item.id === 'todo:3').read, true)
-})
-
-test("a press on an ask goes out with the ask's own buttons, for the ask and every record in its thread", async () => {
-  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }))
-  await asks('ana', ask('todo:1'), ask('todo:9'))
-  const { as, call, emitted } = setup()
-  as(ANA_SUB)
-  assert.equal((await call('action', { record: 'todo:9', action: 'done' })).status, 200)
-  assert.equal((await call('action', { record: 'a1', action: 'done' })).status, 200)
-  assert.deepEqual(emitted.map(e => [e.data.source.record, e.data.payload]), [['todo:9', { source: 'todo', uuid: 'u1' }], ['a1', { source: 'todo', uuid: 'u1' }]])
-  assert.equal((await call('action', { record: 'a1', action: 'snooze' })).status, 400, "the ask's buttons replace the record's")
-  as(BO_SUB)
-  assert.equal((await call('action', { record: 'todo:9', action: 'done' })).status, 404)
-})
-
-test('under Needs you, items the page already shows stay as their asks close', async () => {
-  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }), record('a2', { thread: 'todo:2', attention: 'needs-you', time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }))
-  await asks('ana', ask('todo:1'), ask('todo:2'))
-  const { as, call } = setup()
-  as(ANA_SUB)
-  const shown = (await call('items?view=needs-you')).body.items.map(item => item.key)
-  await asks('ana', ask('todo:1'))
-  const kept = (await call(`items?view=needs-you&keep=${shown.join(',')},nope/../x`)).body.items
-  assert.deepEqual(kept.map(item => [item.id, item.group]), [['a1', 'needs-you'], ['a2', 'handled']])
-  assert.deepEqual((await call('items?view=needs-you')).body.items.map(item => item.id), ['a1'])
 })
 
 test('bad lines are skipped and counted, a half-written line waits, a rewritten file is read again', async () => {
@@ -369,7 +315,7 @@ test('groups come from the writer, else from lane and buttons; counts, the summa
   assert.deepEqual(by.h1.handled, { text: 'Asked again; follow-up set.' })
   assert.deepEqual(by.l1.live.progress, { from: past, to: soon })
   const summary = (await call('summary')).body
-  assert.deepEqual(summary.groups, { urgent: 1, 'needs-you': 0, live: 1, handled: 1, info: 3 })
+  assert.deepEqual(summary.groups, { urgent: 1, live: 1, handled: 1, info: 3 })
   assert.equal(summary.line.text, 'Two things need you.')
   assert.deepEqual([summary.domains.legal, summary.domains.travel], [{ icon: 'scale', tone: 'violet' }, { icon: 'plane' }])
   await writeFile(join(dir, 'ana', 'summary.json'), JSON.stringify({ text: 'Old news.', at: '2026-01-01T00:00:00Z' }))
@@ -418,38 +364,12 @@ test('the events stream tells an open page when its own inbox changed, and only 
     await file('ana', record('a2'))
     assert.ok(await until(/"type":"change"/))
     seen = ''
-    await asks('ana', ask('todo:1'))
-    assert.ok(await until(/"type":"change"/), 'a new asks file is news too')
+    await writeFile(join(dir, 'ana', 'asks.json'), '{}')
+    assert.equal(await until(/"type":"change"/, 200), false, 'a file that is not part of the inbox is no news')
   } finally {
     abort.abort()
     changes.stop()
   }
-})
-
-test('a reply goes to the session the ask names, as the verified person, and only for your own items', async () => {
-  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you', session: 'session-old' }), record('a2'),
-    record('a3', { thread: 'todo:2', attention: 'needs-you', session: 'session-old' }), record('a4', { session: 'session-x' }))
-  await asks('ana', ask('todo:1'), ask('todo:2', { session: null }))
-  const sent = []
-  const { as, call } = setup({ reply: async request => { sent.push(request); return { session: request.session ?? 'session-new', woke: true, fresh: request.session === undefined } } })
-  as(ANA_SUB)
-  const ok = await call('reply', { record: 'a1', text: 'The white one' })
-  assert.deepEqual([ok.status, ok.body.session, ok.body.fresh], [200, 'session-abc', false])
-  assert.equal(sent[0].words, 'The white one')
-  assert.deepEqual(sent[0].item, { id: 'a1', title: 'Ask todo:1', text: 'Text a1\n\nWhich one, todo:1?', thread: 'todo:1', ask: 'todo:1' })
-  assert.deepEqual(sent[0].identity, { provider: 'oidc', issuer: 'https://id.example', id: ANA_SUB })
-  const fresh = await call('reply', { record: 'todo:2', text: 'x' })
-  assert.deepEqual([fresh.status, fresh.body.session, fresh.body.fresh], [200, 'session-new', true], 'an ask without a session opens a new one')
-  assert.equal(sent[1].session, undefined)
-  assert.deepEqual(sent[1].item, { id: 'todo:2', title: 'Ask todo:2', text: 'Which one, todo:2?', thread: 'todo:2', ask: 'todo:2' })
-  await call('reply', { record: 'a3', text: 'x' })
-  assert.equal(sent[2].session, undefined, 'the ask says who asked, not an older notification about it')
-  assert.equal((await call('reply', { record: 'a4', text: 'x' })).status, 200, 'a plain notification that names a session')
-  assert.equal(sent[3].session, 'session-x')
-  assert.equal((await call('reply', { record: 'a2', text: 'x' })).status, 400, 'neither an ask nor a session')
-  as(BO_SUB)
-  assert.equal((await call('reply', { record: 'a1', text: 'x' })).status, 404)
-  assert.equal(sent.length, 4)
 })
 
 test('the words are read for each request and never cached', async () => {
@@ -479,15 +399,14 @@ test('All lists items strictly by time, newest first, whatever group they are in
     record('mid-info', { attention: 'info', time: at(10) }),
     record('new-handled', { actions: [], handled: { text: 'Done.' }, time: at(20) }),
     record('newest-info', { attention: 'info', time: at(30) }))
-  await writeFile(join(dir, 'ana', 'asks.json'), JSON.stringify({ v: 1, asks: [{ id: 'todo:1', title: 'Pick one', time: at(5), actions: [] }] }))
   const { as, call } = setup()
   as(ANA_SUB)
   const all = (await call('items')).body.items
-  assert.deepEqual(all.map(item => item.id), ['newest-info', 'new-handled', 'mid-info', 'todo:1', 'old-urgent'])
+  assert.deepEqual(all.map(item => item.id), ['newest-info', 'new-handled', 'mid-info', 'old-urgent'])
   assert.deepEqual((await call('items?view=all')).body.items.map(item => item.id), all.map(item => item.id))
   const page = await call('items?limit=2')
   assert.deepEqual(page.body.items.map(item => item.id), ['newest-info', 'new-handled'])
-  assert.deepEqual((await call(`items?limit=2&before=${page.body.items[1].key}`)).body.items.map(item => item.id), ['mid-info', 'todo:1'])
+  assert.deepEqual((await call(`items?limit=2&before=${page.body.items[1].key}`)).body.items.map(item => item.id), ['mid-info', 'old-urgent'])
 })
 
 test('Unread lists only unread items in time order, and keeps what the page already shows as it is read', async () => {
@@ -509,94 +428,18 @@ test('Unread lists only unread items in time order, and keeps what the page alre
   assert.deepEqual((await call(`items?view=unread&keep=${keep}`)).body.items.map(item => item.id), ['a4', 'a2', 'a1'], 'a read item stays where it was until the view is left')
 })
 
-const ASK_ANSWER = (n, answer) => ({ kind: 'done', id: `answer-${n}`, label: answer, payload: { source: 'todo', uuid: 'u1', person: 'ana', answer }, inverse: { kind: 'reopen', payload: {} } })
-const SINCE = '2026-11-17T14:00:00Z'
-const readLog = async () => (await readFile(join(dir, 'ana', 'actions.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
 
-test('a reply is an event for the ask’s own writer before it is a message, and the session is told how to settle it', async () => {
-  await asks('ana', ask('todo:1', { how: 'Todo 1. Close it with `done 1`.', actions: [ASK_ANSWER(1, 'Skip it')] }))
-  const sent = []
-  const { as, call, emitted } = setup({ reply: async request => { sent.push(request); return { session: 'session-abc', woke: true, fresh: false } } })
+test('the inbox holds notices: a record about an ask is an ordinary item, and an asks file beside it is not read', async () => {
+  await file('ana',
+    record('a1', { attention: 'needs-you', thread: 'todo:u1', todo: 'u1', session: 'session-abc' }),
+    record('a2', { attention: 'needs-you', lane: 'interrupt', time: '2026-11-17T15:01:00Z' }))
+  await writeFile(join(dir, 'ana', 'asks.json'), JSON.stringify({ v: 1, person: 'ana', asks: [{ id: 'todo:u2', title: 'Pick one', time: '2026-11-17T15:00:00Z', actions: [] }] }))
+  const { as, call, byPath } = setup()
   as(ANA_SUB)
-  const ok = await call('reply', { record: 'todo:1', text: '  update now, no worries ' })
-  assert.deepEqual([ok.status, ok.body.logged, ok.body.session], [200, true, 'session-abc'])
-  assert.equal(emitted[0].channel, 'ui.action.reply')
-  assert.deepEqual([emitted[0].data.action, emitted[0].data.person, emitted[0].data.source.record], ['reply', 'ana', 'todo:1'])
-  assert.deepEqual(emitted[0].data.payload, { source: 'todo', uuid: 'u1', person: 'ana', text: 'update now, no worries' }, 'addressed to the writer the ask’s buttons name')
-  assert.equal(sent[0].item.how, 'Todo 1. Close it with `done 1`.')
-  assert.equal((await readLog()).length, 1)
-  const failing = setup({ reply: async () => { throw new Error('no conversation') } })
-  failing.as(ANA_SUB)
-  const lost = await failing.call('reply', { record: 'todo:1', text: 'again' })
-  assert.deepEqual([lost.status, lost.body.logged, lost.body.delivered, lost.body.error], [200, true, false, 'no conversation'], 'the words are on the ask even when no conversation took them')
-  assert.equal((await failing.call('reply', { record: 'todo:1', text: '  ' })).status, 400)
-  assert.equal((await readLog()).length, 2, 'a refused reply logs nothing')
-})
-
-test('the quote names how to settle the ask, however long the item is', () => {
-  const long = { id: 'r1', title: 'T', text: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n'), thread: 'todo:1', ask: 'todo:1', how: 'Todo 1. Close it.' }
-  for (const fresh of [false, true]) {
-    const lines = quote(long, { fresh }).split('\n')
-    assert.ok(lines.includes('> How to settle it: Todo 1. Close it.'), `fresh ${fresh}`)
-    assert.match(lines.at(-1), /^> context: /)
-  }
-  assert.doesNotMatch(quote({ ...long, how: undefined }), /How to settle/)
-})
-
-test('an answered ask says what the person did and how far it got, from the sources and never a copy', async () => {
-  await asks('ana', ask('todo:1', { since: SINCE, actions: [ASK_ANSWER(1, 'Update after I’m back'), ASK_ANSWER(2, 'Skip it')] }))
-  const { as, call } = setup({ reply: async () => ({ session: 'session-abc', woke: true, fresh: false }) })
-  as(ANA_SUB)
-  const answer = async () => (await call('items')).body.items[0].answer
-  assert.equal(await answer(), null)
-  await call('action', { record: 'todo:1', action: 'answer-2' })
-  const chosen = await answer()
-  assert.deepEqual([chosen.kind, chosen.label, chosen.received, chosen.undoable], ['choice', 'Skip it', false, true])
-  assert.equal(Date.parse(chosen.applyBy) - Date.parse(chosen.at), 2 * 60 * 1000)
-  // A reply arrives on the ask only when the ask's owner says so (`replied`).
-  await call('reply', { record: 'todo:1', text: 'update now' })
-  let reply = await answer()
-  assert.deepEqual([reply.kind, reply.text, reply.received, reply.undoable], ['reply', 'update now', false, false])
-  assert.equal(Date.parse(reply.settleBy) - Date.parse(reply.at), 10 * 60 * 1000)
-  await asks('ana', ask('todo:1', { since: SINCE, replied: { at: new Date(Date.now() + 1000).toISOString(), text: 'update now' }, actions: [] }))
-  reply = await answer()
-  assert.deepEqual([reply.received, reply.text], [true, 'update now'])
-  // What was said before the ask last came back belongs to the earlier showing.
-  await asks('ana', ask('todo:1', { since: new Date(Date.now() + 60000).toISOString(), actions: [] }))
-  assert.equal(await answer(), null)
-})
-
-test('a press taken back is no longer the answer, and a closed ask keeps what the person chose', async () => {
-  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }))
-  await asks('ana', ask('todo:1', { actions: [ASK_ANSWER(1, 'Skip it')] }))
-  const { as, call } = setup()
-  as(ANA_SUB)
-  const pressed = await call('action', { record: 'todo:1', action: 'answer-1' })
-  await asks('ana')
-  const [closed] = (await call('items')).body.items
-  assert.deepEqual([closed.group, closed.moved, closed.answer.label], ['handled', 'closed', 'Skip it'])
-  const undone = await call('undo', { press: pressed.body.press })
-  assert.equal(undone.status, 200)
-  const [back] = (await call('items')).body.items
-  assert.equal(back.answer, null)
-})
-
-test('an undo is the inverse the press declared, once, for the person who pressed', async () => {
-  await asks('ana', ask('todo:1', { actions: [ASK_ANSWER(1, 'Skip it'), { kind: 'snooze', id: 'snooze', payload: { source: 'todo', uuid: 'u1' } }] }))
-  const { as, call, emitted } = setup()
-  as(ANA_SUB)
-  const first = await call('action', { record: 'todo:1', action: 'answer-1' })
-  const plain = await call('action', { record: 'todo:1', action: 'snooze', until: '2026-11-19T09:00:00-05:00' })
-  assert.equal((await call('undo', { press: plain.body.press })).status, 400, 'a snooze with no declared way back')
-  const undone = await call('undo', { press: first.body.press })
-  assert.equal(undone.status, 200)
-  const event = emitted.at(-1)
-  assert.equal(event.channel, 'ui.action.undo')
-  assert.deepEqual([event.data.undoes, event.data.of, event.data.inverse, event.data.person], [first.body.press, 'done', 'reopen', 'ana'])
-  assert.deepEqual(event.data.payload, { source: 'todo', uuid: 'u1', person: 'ana', answer: 'Skip it' })
-  assert.equal((await call('undo', { press: first.body.press })).status, 409)
-  assert.equal((await call('undo', { press: 'abcdefabcdef' })).status, 404)
-  assert.equal((await call('undo', { press: 'nope' })).status, 400)
-  as(BO_SUB)
-  assert.equal((await call('undo', { press: first.body.press })).status, 404, 'only your own presses')
+  const { items } = (await call('items')).body
+  assert.deepEqual(items.map(item => [item.id, item.group]), [['a2', 'urgent'], ['a1', 'info']])
+  assert.equal(items[1].ask, undefined)
+  const { groups } = (await call('summary')).body
+  assert.deepEqual(groups, { urgent: 1, live: 0, handled: 0, info: 1 })
+  assert.equal(byPath.has('/api/notify-inbox/reply'), false, 'there is no reply box to answer from')
 })

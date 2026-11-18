@@ -30,51 +30,6 @@ export function actionEvent(action, { person, record, payload = {}, at = new Dat
   }
 }
 
-export const REPLY_MAX_LOGGED = 8000
-
-/**
- * The event a typed reply becomes: the person's own words about an item, addressed to whatever writes the
- * item's source (the payload of its buttons names it) so the words land there whoever reads them.
- */
-export function replyEvent({ person, record, words, writer = {}, at = new Date(), press = randomBytes(6).toString('hex') }) {
-  return {
-    action: 'reply',
-    id: 'reply',
-    payload: { ...writer, text: String(words).trim().slice(0, REPLY_MAX_LOGGED) },
-    person,
-    at: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    source: { plugin: 'notify-inbox', record: record.id, key: record.key || undefined, domain: record.domain || undefined },
-    press,
-  }
-}
-
-/** The way an item's buttons address their source (`payload.source` and what goes with it), from the first that has one. */
-export function writerOf(actions) {
-  for (const action of actions ?? []) {
-    const { source, uuid, person } = action.payload ?? {}
-    if (typeof source === 'string' && source !== '') return { source, ...(uuid === undefined ? {} : { uuid }), ...(person === undefined ? {} : { person }) }
-  }
-  return {}
-}
-
-/** The event that takes a logged press back through the inverse it declared. */
-export function undoEvent(press, { at = new Date(), id = randomBytes(6).toString('hex') } = {}) {
-  const { payload: wasPayload = {}, inverse } = press
-  const { until: _picked, ...payload } = wasPayload
-  return {
-    action: 'undo',
-    id: press.id,
-    of: press.action,
-    undoes: press.press,
-    inverse: inverse.kind,
-    payload: { ...payload, ...(inverse.payload ?? {}) },
-    person: press.person,
-    at: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    source: press.source,
-    press: id,
-  }
-}
-
 /** What a page may add to a press: only a snooze time. */
 export function pressPayload(kind, value) {
   if (kind !== 'snooze' || typeof value?.until !== 'string') return {}
@@ -112,11 +67,6 @@ export function createActions({ dataDir, events, warn }) {
     return record(actionEvent(action, { person, record: record_, payload: pressPayload(action.kind, extra) }))
   }
 
-  /** A typed reply, logged and published like a press so its owner writes it down. */
-  async function say(person, record_, words) {
-    return record(replyEvent({ person, record: record_, words, writer: writerOf(record_.actions) }))
-  }
-
   /** The logged lines of this person, as written. */
   async function lines(person) {
     let text
@@ -134,17 +84,7 @@ export function createActions({ dataDir, events, warn }) {
     })
   }
 
-  /** Take a logged press back: its inverse becomes an `undo` event. Throws with a status when it cannot be. */
-  async function undo(person, pressId) {
-    const all = await lines(person)
-    const found = all.find(event => event.press === pressId && event.action !== 'undo')
-    if (found === undefined) throw Object.assign(new Error('No such press.'), { status: 404 })
-    if (typeof found.inverse?.kind !== 'string') throw Object.assign(new Error('This cannot be taken back.'), { status: 400 })
-    if (all.some(event => event.action === 'undo' && event.undoes === pressId)) throw Object.assign(new Error('Already taken back.'), { status: 409 })
-    return record(undoEvent(found))
-  }
-
-  /** This person's presses by record id: `[{ press, action, id, at, answer?, text?, until?, inverse?, undoes? }]`. */
+  /** This person's presses by record id: `[{ press, action, id, at, answer?, until?, inverse?, undoes? }]`. */
   async function presses(person) {
     const out = new Map()
     for (const event of await lines(person)) {
@@ -157,7 +97,6 @@ export function createActions({ dataDir, events, warn }) {
         at: event.at,
         until: event.payload?.until,
         answer: typeof event.payload?.answer === 'string' ? event.payload.answer : undefined,
-        text: event.action === 'reply' && typeof event.payload?.text === 'string' ? event.payload.text : undefined,
         inverse: event.inverse,
         undoes: event.undoes,
       }])
@@ -165,5 +104,5 @@ export function createActions({ dataDir, events, warn }) {
     return out
   }
 
-  return { press, say, undo, presses }
+  return { press, presses }
 }

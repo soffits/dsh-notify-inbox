@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.0
+
+- The inbox holds notices only. `asks.json` is no longer read, the Needs you view and group are gone, and the page has two views, All and Unread. A notification about an ask shows as an ordinary item with the buttons its writer gave it; a record that still says `attention: "needs-you"` falls back to the default group. Answer asks where their list shows them.
+- Removed with it: the reply box and `POST /api/notify-inbox/reply`, the answer line and `POST /api/notify-inbox/undo`, and the `replyCwd` and `replyPreset` settings (drop them from your config).
+
 ## 0.11.1
 
 - A press you took back with Undo no longer shows as waiting on the item (its button stayed greyed with "Sent, waiting…"), and the group count in Needs you no longer counts rows that are only kept in place as settled.

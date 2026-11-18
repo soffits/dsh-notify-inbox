@@ -1,5 +1,15 @@
 # Decisions
 
+## Notices only: asks are answered where they live (0.12)
+
+The page showed each open ask from `asks.json` as a Needs you item and every notification about it as well, while the list the ask lived in (a Todo on a board) showed it again, so one question reached the person three or four times. A person reads what waits on them in that list, and the list's own views can carry its buttons and a way to answer, so the inbox goes back to what its name says.
+
+- **No asks, no Needs you.** `asks.json` is no longer read or watched, `needs-you` is no longer a group, and a record that still says `needs-you` (an older writer) falls back to the default group like any unknown value: notices about an ask show as ordinary items, with whatever buttons their writer gave them.
+- **No reply box.** It only ever showed under Needs you; a typed answer to an ask belongs where the ask is answered, as a message to the session that asked. The `reply` route, the answer line and the `undo` route only that line used went with it, and so did `replyCwd` and `replyPreset`.
+- Not chosen: keeping asks as an optional feed for homes that want them in the inbox. One place for a question is the point; two would need rules for which shows when, and the duplicates come back.
+
+(The section below describes 0.11, superseded by this one.)
+
 ## An answer lands on its source, and the page shows how far it got (0.11)
 
 A reply typed under an ask went only into a conversation, quoted with the item and nothing about how to settle it, and the page showed nothing afterwards: the buttons stayed live, the reply box was empty again, and the person could not tell whether anything had happened. A choice button never had the first problem, because it is an action event the list's own writer applies.
