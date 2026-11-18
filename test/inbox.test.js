@@ -138,7 +138,7 @@ test('the asks file decides Needs you: open asks show with or without a record, 
   as(ANA_SUB)
   const items = (await call('items')).body.items
   assert.deepEqual(items.map(item => [item.id, item.group, item.moved]),
-    [['a4', 'urgent', null], ['a1', 'needs-you', null], ['todo:3', 'needs-you', null], ['a2', 'handled', 'closed'], ['a3', 'info', null]])
+    [['a3', 'info', null], ['a2', 'handled', 'closed'], ['a1', 'needs-you', null], ['todo:3', 'needs-you', null], ['a4', 'urgent', null]])
   const one = items.find(item => item.id === 'a1')
   assert.deepEqual([one.title, one.session, one.ask.points, one.actions.map(a => a.kind)], ['Ask todo:1', 'session-abc', 3, ['done']])
   const only = items.find(item => item.id === 'todo:3')
@@ -363,7 +363,7 @@ test('groups come from the writer, else from lane and buttons; counts, the summa
   as(ANA_SUB)
   const items = (await call('items')).body.items
   const by = Object.fromEntries(items.map(item => [item.id, item]))
-  assert.deepEqual(items.map(item => [item.id, item.group]), [['n1', 'urgent'], ['l1', 'live'], ['h1', 'handled'], ['i1', 'info'], ['l2', 'info'], ['e1', 'info']])
+  assert.deepEqual(Object.entries(by).map(([id, item]) => [id, item.group]).sort(), [['e1', 'info'], ['h1', 'handled'], ['i1', 'info'], ['l1', 'live'], ['l2', 'info'], ['n1', 'urgent']])
   assert.deepEqual([by.l1.liveNow, by.l2.liveNow, by.l2.moved], [true, false, 'ended'])
   assert.deepEqual(by.h1.handled, { text: 'Asked again; follow-up set.' })
   assert.deepEqual(by.l1.live.progress, { from: past, to: soon })
@@ -469,4 +469,41 @@ test('a quiet person gets a dot, never a count, on the bell', async () => {
   assert.equal(bo.unread, 1)
   as(ANA_SUB)
   assert.equal((await call('summary')).body.badge, 'count')
+})
+
+test('All lists items strictly by time, newest first, whatever group they are in', async () => {
+  const at = minutes => new Date(Date.parse('2026-11-17T15:00:00Z') + minutes * 60000).toISOString()
+  await file('ana',
+    record('old-urgent', { lane: 'interrupt', actions: [], time: at(0) }),
+    record('mid-info', { attention: 'info', time: at(10) }),
+    record('new-handled', { actions: [], handled: { text: 'Done.' }, time: at(20) }),
+    record('newest-info', { attention: 'info', time: at(30) }))
+  await writeFile(join(dir, 'ana', 'asks.json'), JSON.stringify({ v: 1, asks: [{ id: 'todo:1', title: 'Pick one', time: at(5), actions: [] }] }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const all = (await call('items')).body.items
+  assert.deepEqual(all.map(item => item.id), ['newest-info', 'new-handled', 'mid-info', 'todo:1', 'old-urgent'])
+  assert.deepEqual((await call('items?view=all')).body.items.map(item => item.id), all.map(item => item.id))
+  const page = await call('items?limit=2')
+  assert.deepEqual(page.body.items.map(item => item.id), ['newest-info', 'new-handled'])
+  assert.deepEqual((await call(`items?limit=2&before=${page.body.items[1].key}`)).body.items.map(item => item.id), ['mid-info', 'todo:1'])
+})
+
+test('Unread lists only unread items in time order, and keeps what the page already shows as it is read', async () => {
+  const at = minutes => new Date(Date.parse('2026-11-17T15:00:00Z') + minutes * 60000).toISOString()
+  await file('ana',
+    record('a1', { attention: 'info', time: at(0) }),
+    record('a2', { lane: 'interrupt', actions: [], time: at(10) }),
+    record('a3', { attention: 'info', time: at(20) }),
+    record('a4', { attention: 'info', time: at(30) }))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  await call('read', { ids: ['a3'] })
+  const shown = (await call('items?view=unread')).body.items
+  assert.deepEqual(shown.map(item => item.id), ['a4', 'a2', 'a1'])
+  assert.equal((await call('summary')).body.unread, 3)
+  await call('read', { ids: ['a2'] })
+  assert.deepEqual((await call('items?view=unread')).body.items.map(item => item.id), ['a4', 'a1'])
+  const keep = shown.map(item => item.key).join(',')
+  assert.deepEqual((await call(`items?view=unread&keep=${keep}`)).body.items.map(item => item.id), ['a4', 'a2', 'a1'], 'a read item stays where it was until the view is left')
 })

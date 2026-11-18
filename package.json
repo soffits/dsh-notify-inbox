@@ -1,6 +1,6 @@
 {
   "name": "@soffits/dsh-notify-inbox",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A notification inbox for DeepSeek Harness: each person sees their own notifications with read and unread, gets Web Push on their phone or browser, and can act on them.",
   "type": "module",
   "license": "MIT",

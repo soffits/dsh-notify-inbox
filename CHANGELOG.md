@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+- **All** lists items strictly by time, newest first, whatever group they are in. Before, it was cut into sections (Urgent, Needs you, Live, …), so a newer notification could sit below an older one. The group still shows on each item's icon.
+- A new **Unread** view: only unread items, in the same time order, with the unread count on its tab. An item you open stays in the list until you leave the view or tap the tab again, as in Needs you.
+- **Needs you** is unchanged.
+
 ## 0.9.0
 
 - `quiet`: people whose bell shows a soft grey dot when something is new, never a red count, so their inbox invites rather than nags. The summary says which (`badge`: `count` or `dot`).
