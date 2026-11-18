@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- A reply is sent by the server: `POST /api/notify-inbox/reply` checks the item is yours and steers the session that asked, as you, with the ask quoted in. Before, the page sent it through the browser, which could stall on a long conversation and never arrive.
+- The page's words are read from the language files for each request and never cached, so an update in place can't leave the page showing raw keys.
+
 ## 0.6.1
 
 - The reply box has a visible border (it used a colour token DSH doesn't define).

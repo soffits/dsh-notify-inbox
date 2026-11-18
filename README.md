@@ -88,7 +88,8 @@ What waits on the person's answer (a decision, a pick, a small step for someone 
 
 - Each open ask is one item, whether or not a notification was ever filed about it. Notifications whose `thread` is the ask's `id` fold into it, and the ask's own buttons, title and `session` win. When the ask leaves the file it was settled where it lives: its notifications show as Handled ("Settled").
 - `points` (shown as a small "+3" beside the title) is what dealing with it earns where the list keeps such a game; leave it out otherwise. `next` and `due` are days.
-- With a `session`, the opened item has a reply box. The reply goes into that session as the person (through `@soffits/dsh-ui-actions`' `start`, DSH's own session prompt), with the ask quoted in, so the conversation that asked carries on with the answer; the page offers to open it.
+- With a `session`, the opened item has a reply box. `POST /api/notify-inbox/reply` (`{ record, text }`) checks the item is the caller's, then puts the words, with the ask quoted in, into that session through DSH's own steering (a running session sees them at its next step, an idle or stored one starts a turn), sent as the verified person (their sign-in's principal) or as the owner without a mapping; the conversation that asked carries on with the answer, and the page offers to open it. A finished helper (subagent) session can't take a reply.
+- An ask that is a question lists its `options`; the writer gives each its own button (a `done` whose payload carries the answer), so a press answers it. One that is a task has a plain done.
 - A press on an ask's buttons is an action event like any other (`source.record` is the ask's id), for whatever keeps the list to act on.
 - Without `asks.json` nothing changes: notifications keep the group they were filed with.
 

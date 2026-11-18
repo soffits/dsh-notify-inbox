@@ -15,8 +15,8 @@
  *
  * An ask (a notification that waits on the person's answer, or an open ask
  * from their list) shows its points and, when it names the session that
- * asked, a reply box: the reply goes into that session as the person, through
- * the UI actions' `start`, with the ask quoted in.
+ * asked, a reply box: the server puts the reply into that session as the
+ * person, with the ask quoted in.
  */
 window.__ModuleLoader__.load({
   id: '@soffits/dsh-notify-inbox',
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
     })
 
     /** A reply to an ask, sent into the session that asked as the person, with the ask quoted in. */
-    function Reply({ item, ui, t, onSent }) {
+    function Reply({ item, t, onSent }) {
       const [text, setText] = useState('')
       const [state, setState] = useState({ phase: 'idle' })
       const send = async () => {
@@ -181,9 +181,9 @@ window.__ModuleLoader__.load({
         if (words === '' || state.phase === 'sending') return
         setState({ phase: 'sending' })
         try {
-          const session = await ui.start(aboutOf(item), { instruction: words, session: item.session })
+          const sent = await call('reply', { record: item.id, text: words })
           setText('')
-          setState({ phase: 'sent', session })
+          setState({ phase: 'sent', session: sent.session })
           onSent()
         } catch (reason) {
           setState({ phase: 'failed', message: reason.message })
@@ -259,7 +259,7 @@ window.__ModuleLoader__.load({
           ui !== null && h(ui.ActionBar, { actions: item.actions, states, about, defaultChat: true, part: 'buttons', onPress }),
           item.read && h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, false) }, t('markUnread')),
           status && h('span', { className: 'nib-meta' }, status)),
-        item.group === 'needs-you' && item.session && ui?.start && h(Reply, { item, ui, t, onSent: () => { if (!item.read) onMark(item, true) } }),
+        item.group === 'needs-you' && item.session && h(Reply, { item, t, onSent: () => { if (!item.read) onMark(item, true) } }),
         h(kit.Suggested, { actions: item.actions, about, states, onPress }),
         h('div', { className: 'nib-meta' },
           item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,

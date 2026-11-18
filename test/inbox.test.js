@@ -29,7 +29,7 @@ async function file(person, ...rows) {
   await appendFile(join(dir, person, 'inbox.jsonl'), rows.map(row => `${typeof row === 'string' ? row : JSON.stringify(row)}\n`).join(''))
 }
 
-function setup({ mapping = true, provider = true, events } = {}) {
+function setup({ mapping = true, provider = true, events, reply } = {}) {
   let current = null
   const identity = { current: () => current }
   const as = id => { current = id === null ? null : { provider: 'oidc', issuer: 'https://id.example', id } }
@@ -43,7 +43,7 @@ function setup({ mapping = true, provider = true, events } = {}) {
   const emitted = []
   const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
   const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
-  const routes = createRoutes({ store, people, push, actions, changes, identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12 })
+  const routes = createRoutes({ store, people, push, actions, changes, reply, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12 })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -423,4 +423,30 @@ test('the events stream tells an open page when its own inbox changed, and only 
     abort.abort()
     changes.stop()
   }
+})
+
+test('a reply goes to the session the ask names, as the verified person, and only for your own items', async () => {
+  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you', session: 'session-old' }), record('a2'))
+  await asks('ana', ask('todo:1'), ask('todo:2', { session: null }))
+  const sent = []
+  const { as, call } = setup({ reply: async request => { sent.push(request); return { session: request.session, woke: true } } })
+  as(ANA_SUB)
+  const ok = await call('reply', { record: 'a1', text: 'The white one' })
+  assert.deepEqual([ok.status, ok.body.session], [200, 'session-abc'])
+  assert.equal(sent[0].words, 'The white one')
+  assert.deepEqual(sent[0].item, { id: 'a1', title: 'Title a1', text: 'Text a1', thread: 'todo:1', ask: 'todo:1' })
+  assert.deepEqual(sent[0].identity, { provider: 'oidc', issuer: 'https://id.example', id: ANA_SUB })
+  assert.equal((await call('reply', { record: 'todo:2', text: 'x' })).status, 400, 'an ask without a session takes no reply')
+  assert.equal((await call('reply', { record: 'a2', text: 'x' })).status, 400)
+  as(BO_SUB)
+  assert.equal((await call('reply', { record: 'a1', text: 'x' })).status, 404)
+  assert.equal(sent.length, 1)
+})
+
+test('the words are read for each request and never cached', async () => {
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const got = await call('strings')
+  assert.equal(got.headers.get('cache-control'), 'no-store')
+  assert.equal(got.body.tables.en.title, 'Inbox')
 })
