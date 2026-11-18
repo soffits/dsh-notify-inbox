@@ -2,7 +2,7 @@
  * Change notices. The data folder and each person's folder are watched
  * (`fs.watch` on the directories, so a file replaced by a rename is seen as
  * well as one appended to); when one of the files that make up a person's
- * inbox (records, read marks, presses, the summary line, the asks) changes,
+ * inbox (records, read marks, presses, the summary line) changes,
  * every listener allowed to see that person hears a short notice and the page
  * fetches again, and `onChange` runs (push looks for new records). No timer:
  * the files' own changes are the signal. A folder that appears later is
@@ -11,7 +11,7 @@
 import { watch } from 'node:fs'
 import { join } from 'node:path'
 
-export const FILES = ['inbox.jsonl', 'read.json', 'actions.jsonl', 'summary.json', 'asks.json']
+export const FILES = ['inbox.jsonl', 'read.json', 'actions.jsonl', 'summary.json']
 const SETTLE_MS = 50
 
 /**
