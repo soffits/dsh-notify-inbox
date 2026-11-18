@@ -25,3 +25,4 @@ After UI changes, look at the page at 390 and 1280 px, light and dark, in two la
 
 
 `npm run check` (syntax), `npm test` (Node test runner, offline). Conventional Commits; versions follow semver from commit types.
+- Releases: after bumping the version and `CHANGELOG.md` and merging, pushing the tag `vX.Y.Z` runs `.github/workflows/publish.yml`, which publishes to npm by trusted publishing (OIDC, with provenance, no stored token; the package's trusted publisher on npmjs.com names this repo and `publish.yml`, so renaming either breaks it) and creates the GitHub release. Don't publish by hand.
