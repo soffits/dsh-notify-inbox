@@ -62,11 +62,14 @@
     "check": "for f in index.js client.js src/*.js test/*.js; do node --check \"$f\" || exit 1; done",
     "test": "node --test test/*.test.js"
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.5"
-  },
   "engines": {
     "node": ">=22",
     "dsh": ">=0.2.2-rc.1 <0.3.0-0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "3.18.5"
   }
 }
