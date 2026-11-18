@@ -8,7 +8,7 @@ From `@deepseek-ai/dsh-client-ui-primitives`, which DSH puts in every plugin's m
 
 | Piece | Where |
 |---|---|
-| `Button` (outline, small) | Mark all read, Mark unread, Show older, the ⋯ trigger |
+| `Button` (outline, small) | Mark all read, Mark read / Mark unread, Show older, the ⋯ trigger |
 | `Pill` | The All / Unread filters, as on the Automation page |
 | `Menu`, `Tooltip` | The ⋯ menu: notifications on this device, a test push |
 | `StateDot` | The green dot on a live item |
@@ -21,7 +21,7 @@ The page's layout copies the numbers of DSH's own pages, since their CSS modules
 
 ## The shared kit
 
-From [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit) (`ctx.uiKit`), for what DSH has no piece for and other plugin pages need too: `Tile` and `Icon` (a domain's Lucide icon on a tinted tile), `TimeAgo` and `TimeUntil` (times that tick, full date on hover), `LiveStatus` and `useEventStream` (the live line and the events stream), `useWash` and `NewDot` (the two-second cue on an item that just changed, the unread dot), `History` (a thread's earlier entries), `Progress` (a live item's bar through time) and `Suggested` (the suggested steps). The buttons themselves come from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions).
+From [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit) (`ctx.uiKit`), for what DSH has no piece for and other plugin pages need too: `Tile` and `Icon` (a domain's Lucide icon on a tinted tile), `TimeAgo` and `TimeUntil` (times that tick, full date on hover), `LiveStatus` and `useEventStream` (the live line and the events stream), `useWash` and `NewDot` (the two-second cue on an item that just changed, the unread dot), `History` (a thread's earlier entries), and `Progress` (a live item's bar through time). The chat button comes from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions).
 
 ## Ours
 

@@ -2,10 +2,8 @@
  * What the page lists: items, not records. Records of one person with the same
  * `thread` fold into one item, the newest on top and the older ones as its
  * history; a live thread's newest record simply replaces the item. Each item
- * gets the group it shows in now, which can differ from what its writer said:
- * an urgent item the person marked done is handled, a snoozed one waits under
- * info until it comes back as a new record, and a live item whose time is over
- * is info.
+ * gets the group it shows in now: its writer's, except that a live item whose
+ * time is over is info.
  */
 import { createHash } from 'node:crypto'
 import { GROUPS } from './store.js'
@@ -29,20 +27,15 @@ export function liveNow(record, now) {
 
 /**
  * The group an item's newest record shows in at `now`, with `moved` saying why when it isn't the
- * writer's: 'done' (the person marked it done), 'snoozed' or 'ended' (a live item past its time).
+ * writer's: 'ended' (a live item past its time).
  */
 export function groupOf(record, now) {
-  if (record.attention === 'urgent') {
-    const last = record.outcomes.findLast(row => row.result === 'done' || row.result === 'snoozed')
-    if (last?.result === 'done') return { group: 'handled', moved: 'done' }
-    if (last?.result === 'snoozed' && (last.until === undefined || Date.parse(last.until) > now)) return { group: 'info', moved: 'snoozed' }
-  }
   if (record.attention === 'live' && !liveNow(record, now)) return { group: 'info', moved: 'ended' }
   return { group: record.attention, moved: null }
 }
 
 /**
- * Fold records (newest first, each with `read` and `outcomes`) into items, newest first by the time of
+ * Fold records (newest first, each with `read`) into items, newest first by the time of
  * each item's latest notification, whatever group it shows in.
  */
 export function buildItems(records, now) {
