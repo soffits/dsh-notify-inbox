@@ -74,7 +74,8 @@ async function body(request) {
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), reply, changes, domains, summaryHours }) {
+export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), reply, changes, domains, summaryHours, quiet = [] }) {
+  const hushed = new Set(quiet.map(person => String(person).trim().toLowerCase()))
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
     const viewer = await viewerOf(people, identity())
@@ -110,7 +111,8 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     const [{ items, bad }, line] = await Promise.all([itemsOf(who), store.summaryLine(who.folders, summaryHours)])
     const { groups, unread } = countItems(items)
     const latest = items.reduce((newest, item) => (newest === null || item.time > newest ? item.time : newest), null)
-    return json(200, { mode: who.mode, person: who.person, unread, groups, total: items.length, latest, line, domains, problems: { badLines: bad } })
+    const badge = who.person !== null && who.person !== undefined && hushed.has(who.person.toLowerCase()) ? 'dot' : 'count'
+    return json(200, { mode: who.mode, person: who.person, unread, badge, groups, total: items.length, latest, line, domains, problems: { badLines: bad } })
   })
 
   const list = handle(async (request, who) => {

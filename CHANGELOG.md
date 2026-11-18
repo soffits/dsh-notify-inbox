@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- `quiet`: people whose bell shows a soft grey dot when something is new, never a red count, so their inbox invites rather than nags. The summary says which (`badge`: `count` or `dot`).
+
 ## 0.8.1
 
 - A link to an item from another page of the app (`/?notify-inbox=<id>`, pushed in place) opens it; before, only a page load or a push did.

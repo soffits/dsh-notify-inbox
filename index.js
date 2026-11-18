@@ -52,6 +52,8 @@ export const Config = z.object({
     .description('The folder of the new session a reply opens when the item names no conversation, or the one it names is gone or archived. Empty means the host default. A leading ~/ means the home folder.'),
   replyPreset: z.string().default('')
     .description('The agent preset of that new session. Empty means the host default.'),
+  quiet: z.array(z.string()).default([])
+    .description('People (person ids) whose bell never shows a count: a soft dot says something is new, so their inbox invites rather than nags.'),
 })
 
 /**
@@ -175,6 +177,7 @@ export function apply(ctx, config) {
     reply,
     domains: domainMap(config.domains ?? {}),
     summaryHours: config.summaryHours ?? 12,
+    quiet: config.quiet ?? [],
   })
   for (const route of routes) ctx.connection.fetch.register(route)
 
