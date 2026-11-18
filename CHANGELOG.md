@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- A press you took back with Undo no longer shows as waiting on the item (its button stayed greyed with "Sent, waiting…"), and the group count in Needs you no longer counts rows that are only kept in place as settled.
+
 ## 0.11.0
 
 - Answering an item now shows. A choice, a done, a snooze or a reply turns the item into a line saying what you did and how far it has got (sending, applied, "your reply is on the ask, being handled"), the answering buttons and the reply box give way to it, and the next item that needs you opens and takes focus, so Needs you works like a list you go through one by one. When the ask closes, the row stays in place, settled, with Undo where the button had a way back, until you leave the view. If nobody took the answer in two minutes, or nobody closed the ask ten minutes after a reply, the line says so and the buttons come back; English, French and Chinese.

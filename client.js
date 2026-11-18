@@ -153,7 +153,10 @@ window.__ModuleLoader__.load({
     // ---- the buttons ----
 
     /** The server's view of each button's last press: pending, done or unhandled. */
-    const pressesOfButtons = item => item.presses.filter(press => press.action !== 'reply' && press.action !== 'undo')
+    const pressesOfButtons = item => {
+      const undone = new Set(item.presses.filter(press => press.action === 'undo').map(press => press.undoes))
+      return item.presses.filter(press => press.action !== 'reply' && press.action !== 'undo' && !undone.has(press.press))
+    }
 
     function pressStates(item) {
       const states = {}
@@ -590,11 +593,12 @@ window.__ModuleLoader__.load({
       const grouped = view === 'needs-you'
       const byGroup = new Map(GROUPS.map(group => [group, []]))
       for (const item of items ?? []) byGroup.get(placed.current.get(item.key)?.group ?? item.group)?.push(item)
-      if (grouped) for (const [key, item] of settled) if (!(items ?? []).some(row => row.key === key)) byGroup.get(placed.current.get(key)?.group ?? 'needs-you').push(item)
+      const goneKeys = new Set()
+      if (grouped) for (const [key, item] of settled) if (!(items ?? []).some(row => row.key === key)) { goneKeys.add(key); byGroup.get(placed.current.get(key)?.group ?? 'needs-you').push(item) }
       const rank = item => placed.current.get(item.key)?.rank ?? 0
       for (const list of byGroup.values()) list.sort((a, b) => rank(a) - rank(b))
       order.current = byGroup.get('needs-you')
-      const itemRow = (item, group = item.group) => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, settled: settled.has(item.key) && !(items ?? []).some(row => row.key === item.key), onToggle: toggle, onMark: mark, onAnswered: answeredItem, onUndo: undoAnswer })
+      const itemRow = (item, group = item.group) => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, settled: goneKeys.has(item.key), onToggle: toggle, onMark: mark, onAnswered: answeredItem, onUndo: undoAnswer })
       const filters = [['needs-you', t('group.needs-you'), groups['needs-you'] ?? 0], ['all', t('filter.all'), total], ['unread', t('filter.unread'), unread]]
 
       return h('div', { className: 'nib-page' },
@@ -619,7 +623,7 @@ window.__ModuleLoader__.load({
             grouped && GROUPS.map(group => byGroup.get(group).length > 0 && h('section', { key: group, className: 'nib-group', 'data-group': group, 'aria-label': t(`group.${group}`) },
               h('div', { className: 'nib-groupHead' },
                 h('h2', null, t(`group.${group}`)),
-                h('span', { className: 'nib-n' }, byGroup.get(group).length)),
+                h('span', { className: 'nib-n' }, byGroup.get(group).filter(item => !goneKeys.has(item.key)).length)),
               h('ul', { className: 'nib-list' },
                 byGroup.get(group).map(item => itemRow(item, group))))),
             more && h('div', { className: 'nib-more' }, h(Button, { variant: 'outline', size: 'sm', onClick: () => load(true) }, t('loadMore'))))))
