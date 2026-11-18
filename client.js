@@ -14,15 +14,19 @@
  * stream (the inbox files' own changes), never a timer.
  *
  * An ask (a notification that waits on the person's answer, or an open ask
- * from their list) shows its points and a reply box: the server puts the
- * reply into the session that asked as the person, with the ask quoted in,
- * or into a new session when that one is gone or the ask names none.
+ * from their list) shows its points and a reply box: the server logs the
+ * reply on the ask through its writer, then puts it into the session that
+ * asked as the person, with the ask quoted in, or into a new session when
+ * that one is gone or the ask names none. Once answered (a choice, a snooze
+ * or a reply) the item says what was done and how far it has got, the next
+ * item that needs the person opens, and a closed ask stays settled, with
+ * Undo, until the view is left.
  */
 window.__ModuleLoader__.load({
   id: '@soffits/dsh-notify-inbox',
   factory(require) {
     const React = require('react')
-    const { Button, Pill, Menu, Tooltip, StateDot, IconCheckCircleOutlineRegular, IconEllipsisOutlineRegular, IconSendOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { Button, Pill, Menu, Tooltip, StateDot, IconCheckCircleOutlineRegular, IconEllipsisOutlineRegular, IconSendOutlineRegular, IconLoadingOutlineRegular, IconWarningTriangleOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
     const { useState, useEffect, useCallback, useRef, useSyncExternalStore } = React
 
@@ -81,6 +85,11 @@ window.__ModuleLoader__.load({
 .nib-sub{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:21px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
 .nib-done{display:flex;gap:6px;align-items:flex-start;font-size:13px;line-height:21px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
 .nib-done svg{flex:none;margin-top:3px;color:var(--dsw-alias-state-success-primary)}
+.nib-answer{margin-top:4px;color:var(--dsw-alias-label-secondary)}
+.nib-answer[data-phase=sending] svg,.nib-answer[data-phase=working] svg,.nib-answer[data-phase=applying] svg{color:var(--dsw-alias-label-tertiary)}
+.nib-answer.nib-warn svg{color:var(--dsw-alias-state-warn-primary)}
+.nib-link{padding:0;border:0;background:none;color:var(--dsw-alias-link,var(--dsw-alias-state-business-primary));font:inherit;text-decoration:underline;cursor:pointer}
+.nib-answered .nib-title{font-weight:400;color:var(--dsw-alias-label-secondary)}
 .nib-progress{margin-top:8px;max-width:560px}
 .nib-body{display:flex;flex-direction:column;gap:12px;margin-top:10px}
 .nib-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px}
@@ -144,9 +153,11 @@ window.__ModuleLoader__.load({
     // ---- the buttons ----
 
     /** The server's view of each button's last press: pending, done or unhandled. */
+    const pressesOfButtons = item => item.presses.filter(press => press.action !== 'reply' && press.action !== 'undo')
+
     function pressStates(item) {
       const states = {}
-      for (const press of item.presses) {
+      for (const press of pressesOfButtons(item)) {
         const action = item.actions.find(row => row.id === press.id) ?? item.actions.find(row => row.kind === press.action) ?? { id: press.action }
         const handled = item.outcomes.some(row => row.press === press.press)
         states[action.id] = handled ? 'done' : Date.now() - Date.parse(press.at) < PENDING_MS ? 'pending' : 'unhandled'
@@ -156,7 +167,7 @@ window.__ModuleLoader__.load({
 
     /** What happened to the latest press, in words, or null. */
     function pressStatus(item, t) {
-      const press = item.presses[item.presses.length - 1]
+      const press = pressesOfButtons(item).at(-1)
       if (press === undefined || press.action === 'step') return null
       const outcome = item.outcomes.find(row => row.press === press.press)
       if (outcome !== undefined) {
@@ -165,6 +176,70 @@ window.__ModuleLoader__.load({
         return outcome.result
       }
       return Date.now() - Date.parse(press.at) < PENDING_MS ? t('press.pending') : t('press.unhandled')
+    }
+
+    // ---- what the person said to an item, and how far it got ----
+
+    /** Where each reply went (press id → `{ session, fresh }` or `{ error }`): only this page knows it. */
+    const sentTo = new Map()
+    const ACTIVE = new Set(['sending', 'working', 'applying'])
+
+    /**
+     * How far an answer has got. The sources say whether it did (`received`, the ask closing); the clock only says when
+     * the page stops waiting: `applyBy` for the source to take it in, `settleBy` for a reply to be dealt with.
+     */
+    function phaseOf(answer, settled, now) {
+      if (settled) return 'settled'
+      if (answer.kind === 'reply') {
+        if (!answer.received) return now < Date.parse(answer.applyBy) ? 'sending' : 'lost'
+        return now < Date.parse(answer.settleBy) ? 'working' : 'open'
+      }
+      return now < Date.parse(answer.applyBy) ? 'applying' : 'notApplied'
+    }
+
+    /** Re-render at the moment an answer's phase changes (the next of its two times), never on a poll. */
+    function useAnswerClock(answer) {
+      const [tick, setTick] = useState(0)
+      useEffect(() => {
+        if (!answer) return undefined
+        const now = Date.now()
+        const next = [answer.applyBy, answer.settleBy].map(Date.parse).filter(at => at > now).sort((a, b) => a - b)[0]
+        if (next === undefined) return undefined
+        const timer = setTimeout(() => setTick(n => n + 1), next - now + 50)
+        return () => clearTimeout(timer)
+      }, [answer?.press, answer?.applyBy, answer?.settleBy, tick])
+    }
+
+    /** What the person did, in words: the choice, the reply, the snooze. */
+    function answerText(answer, t) {
+      if (answer.kind === 'reply') return t('answer.replied', { text: answer.text })
+      if (answer.kind === 'choice') return t('answer.chose', { label: answer.label })
+      if (answer.kind === 'snooze') return answer.until ? t('answer.snoozedUntil', { time: absolute(answer.until, t) }) : t('answer.snoozed')
+      return t('answer.done')
+    }
+
+    /** The answer's line: what they did, how far it got, where the reply went, and Undo where there is a way back. */
+    function AnswerLine({ item, answer, phase, t, onUndo }) {
+      const [undo, setUndo] = useState({ phase: 'idle' })
+      const sent = sentTo.get(answer.press)
+      const bad = phase === 'lost' || phase === 'notApplied' || phase === 'open'
+      const icon = bad ? IconWarningTriangleOutlineRegular : ACTIVE.has(phase) ? IconLoadingOutlineRegular : IconCheckCircleOutlineRegular
+      const run = async () => {
+        setUndo({ phase: 'working' })
+        try {
+          await onUndo(item, answer)
+        } catch (reason) {
+          setUndo({ phase: 'failed', message: reason.message })
+        }
+      }
+      return h('div', { className: `nib-done nib-answer${bad ? ' nib-warn' : ''}`, 'data-phase': phase, role: 'status' },
+        h(icon, { size: 14 }),
+        h('span', null, answerText(answer, t), ' · ', t(`answer.${phase}`),
+          sent?.session && h(React.Fragment, null, ' · ', sent.fresh ? `${t('reply.sentNew')} ` : '', h('button', { type: 'button', className: 'nib-link', onClick: () => shared.openSession(sent.session) }, t('reply.open'))),
+          sent?.error && h('span', { className: 'nib-bad' }, ` · ${t('reply.notDelivered', { message: sent.error })}`),
+          answer.undoable && phase === 'settled' && h(React.Fragment, null, ' ',
+            h(Button, { variant: 'outline', size: 'sm', disabled: undo.phase === 'working', onClick: run }, t(undo.phase === 'working' ? 'answer.undoing' : 'answer.undo'))),
+          undo.phase === 'failed' && h('span', { className: 'nib-bad', role: 'alert' }, ` ${t('answer.undoFailed', { message: undo.message })}`)))
     }
 
     /** What "Ask" and a step attach to the conversation: the notification as a card. */
@@ -185,8 +260,9 @@ window.__ModuleLoader__.load({
         setState({ phase: 'sending' })
         try {
           const sent = await call('reply', { record: item.id, text: words })
+          sentTo.set(sent.press, sent.delivered === false ? { error: sent.error } : { session: sent.session, fresh: sent.fresh === true })
           setText('')
-          setState({ phase: 'sent', session: sent.session, fresh: sent.fresh === true })
+          setState({ phase: 'idle' })
           onSent()
         } catch (reason) {
           setState({ phase: 'failed', message: reason.message })
@@ -204,27 +280,30 @@ window.__ModuleLoader__.load({
         h('div', { className: 'nib-replyBar' },
           h(Button, { variant: 'outline', size: 'sm', disabled: text.trim() === '' || state.phase === 'sending', onClick: send },
             h(IconSendOutlineRegular, null), ' ', t(state.phase === 'sending' ? 'reply.sending' : 'reply.send')),
-          state.phase === 'sent' && h('span', { className: 'nib-meta' }, t(state.fresh ? 'reply.sentNew' : 'reply.sent'), ' ',
-            h(Button, { variant: 'outline', size: 'sm', onClick: () => shared.openSession(state.session) }, t('reply.open'))),
           state.phase === 'failed' && h('span', { className: 'nib-meta nib-bad', role: 'alert' }, t('reply.failed', { message: state.message }))))
     }
 
     // ---- one item ----
 
-    function Item({ item, group, kit, ui, t, domains, open, onToggle, onMark }) {
+    function Item({ item, group, kit, ui, t, domains, open, settled = false, onToggle, onMark, onAnswered, onUndo }) {
       const wash = kit.useWash(item.id, item.key)
       const domain = domains[item.domain] ?? {}
       const tone = domain.tone ?? GROUP_TONE[group]
       const title = item.title || item.spoken || item.text.slice(0, 80)
       const sub = item.spoken && item.spoken !== title ? item.spoken : item.text !== title ? item.text : ''
-      const doneText = item.handled?.text ?? (item.moved === 'done' ? t('moved.done') : item.moved === 'closed' ? t('moved.closed') : null)
+      const answer = item.answer ?? null
+      useAnswerClock(settled ? null : answer)
+      const closed = settled || item.moved === 'closed'
+      const phase = answer === null ? null : phaseOf(answer, closed, Date.now())
+      const doneText = answer !== null ? null : item.handled?.text ?? (item.moved === 'done' ? t('moved.done') : item.moved === 'closed' ? t('moved.closed') : null)
       const status = item.moved === 'snoozed' ? pressStatus(item, t) : item.moved === 'ended' ? t('moved.ended') : null
       const history = !item.liveNow && item.history.length > 0 && item.history.map(row => ({ at: row.time, text: said(row.spoken, t) || said(row.title, t) }))
       const onPress = async (action, extra) => {
         await call('action', { record: item.id, action: action.id, ...(extra?.until ? { until: extra.until } : {}) })
         changed()
+        if (action.kind === 'done' || action.kind === 'snooze') onAnswered(item)
       }
-      const className = ['nib-item', item.read ? '' : 'nib-unread', open ? 'nib-open' : '', wash].filter(Boolean).join(' ')
+      const className = ['nib-item', item.read ? '' : 'nib-unread', open && !settled ? 'nib-open' : '', answer !== null ? 'nib-answered' : '', wash].filter(Boolean).join(' ')
       return h('li', { className, id: `nib-${item.key}`, 'data-group': group },
         h('div', { className: 'nib-line' },
           h(kit.Tile, { icon: domain.icon ?? GROUP_ICON[group], tone, size: 32 }),
@@ -237,16 +316,21 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'nib-when' },
                   item.liveNow && h(StateDot, { state: 'done' }),
                   h(kit.TimeAgo, { at: item.time }))),
-              !open && group !== 'handled' && sub && h('span', { className: 'nib-sub' }, status ? `${sub} · ${status}` : sub)),
+              !open && group !== 'handled' && answer === null && sub && h('span', { className: 'nib-sub' }, status ? `${sub} · ${status}` : sub)),
+            answer !== null && h(AnswerLine, { key: answer.press, item, answer, phase, t, onUndo }),
             doneText && h('div', { className: 'nib-done' }, h(IconCheckCircleOutlineRegular, { size: 14 }), h('span', null, doneText)),
             item.liveNow && item.live?.progress && h('div', { className: 'nib-progress' },
               h(kit.Progress, { from: item.live.progress.from, to: item.live.progress.to, end: h(kit.TimeUntil, { to: item.live.progress.to }) })),
             history && h(kit.History, { items: history, max: 2 }),
-            open && h(Details, { item, kit, ui, t, onPress, onMark }))))
+            open && !settled && h(Details, { item, kit, ui, t, onPress, onMark, onAnswered, locked: answer !== null && ACTIVE.has(phase), phase }))))
     }
 
-    function Details({ item, kit, ui, t, onPress, onMark }) {
-      const status = pressStatus(item, t)
+    /** Buttons that act in the page stay while an answer is on its way; the ones that would answer again wait. */
+    const STAYING = new Set(['chat', 'link'])
+
+    function Details({ item, kit, ui, t, onPress, onMark, onAnswered, locked, phase }) {
+      const status = locked ? null : pressStatus(item, t)
+      const actions = locked ? item.actions.filter(action => STAYING.has(action.kind)) : item.actions
       const about = aboutOf(item)
       const states = pressStates(item)
       return h('div', { className: 'nib-body' },
@@ -259,11 +343,11 @@ window.__ModuleLoader__.load({
             ? h('a', { key: file.name, href: api(`file?id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(file.name)}`), target: '_blank', rel: 'noopener' }, file.name)
             : h('span', { key: file.name, className: 'nib-meta' }, `${file.name} (${t('notStored', { reason: file.reason || '?' })})`))),
         h('div', { className: 'nib-actions' },
-          ui !== null && h(ui.ActionBar, { actions: item.actions, states, about, defaultChat: true, part: 'buttons', onPress }),
+          ui !== null && h(ui.ActionBar, { actions, states, about, defaultChat: true, part: 'buttons', onPress }),
           item.read && h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, false) }, t('markUnread')),
           status && h('span', { className: 'nib-meta' }, status)),
-        item.group === 'needs-you' && (item.session || item.ask) && h(Reply, { item, t, onSent: () => { if (!item.read) onMark(item, true) } }),
-        h(kit.Suggested, { actions: item.actions, about, states, onPress }),
+        !locked && item.group === 'needs-you' && (item.session || item.ask) && h(Reply, { item, t, onSent: () => { if (!item.read) onMark(item, true); onAnswered(item) } }),
+        h(kit.Suggested, { actions, about, states, onPress }),
         h('div', { className: 'nib-meta' },
           item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
             item.routed.map((row, i) => h(React.Fragment, { key: row.destination },
@@ -399,6 +483,12 @@ window.__ModuleLoader__.load({
       // exactly as the server sends it.
       const placed = useRef(new Map())
       const [visit, setVisit] = useState(0)
+      // Answered items the source has since closed stay where they were, settled, until the view is left, so what
+      // the person did stays in sight (with Undo) instead of vanishing under their finger.
+      const [settled, setSettled] = useState(() => new Map())
+      const answered = useRef(new Map())
+      const order = useRef([])
+      const [focusKey, setFocusKey] = useState(null)
       /** Remember where items first showed: the page's first items in order, later arrivals on top, older pages below. */
       const place = (rows, append) => {
         const ranks = [...placed.current.values()].map(spot => spot.rank)
@@ -422,6 +512,16 @@ window.__ModuleLoader__.load({
           if (append && items?.length) params.set('before', items[items.length - 1].key)
           const page = await call(`items?${params}`)
           place(page.items, append)
+          if (!append) {
+            const here = new Set(page.items.map(row => row.key))
+            const gone = [...answered.current].filter(([key]) => !here.has(key))
+            answered.current = new Map(page.items.filter(row => row.answer && row.group === 'needs-you').map(row => [row.key, row]))
+            setSettled(previous => {
+              const next = new Map([...previous].filter(([key]) => !here.has(key)))
+              for (const [key, row] of gone) next.set(key, row)
+              return next.size === previous.size && [...next.keys()].every(key => previous.has(key)) ? previous : next
+            })
+          }
           setItems(previous => (append && previous ? [...previous, ...page.items] : page.items))
           setMore(page.more)
           setError(null)
@@ -433,6 +533,8 @@ window.__ModuleLoader__.load({
       useEffect(() => { load(false) }, [view, version, visit])
       const showView = key => {
         placed.current = new Map()
+        answered.current = new Map()
+        setSettled(new Map())
         if (key === view) setVisit(n => n + 1)
         else setView(key)
       }
@@ -459,6 +561,27 @@ window.__ModuleLoader__.load({
         setOpen(next)
         if (next !== null && !item.read) mark(item, true)
       }
+      /** The person answered an item: it is handled now, so open the next one that still needs them. */
+      const answeredItem = item => {
+        const list = order.current
+        const at = list.findIndex(row => row.key === item.key)
+        const next = [...list.slice(at + 1), ...list.slice(0, Math.max(at, 0))].find(row => row.key !== item.key && !row.answer && !settled.has(row.key))
+        setOpen(next?.key ?? null)
+        if (next === undefined) return
+        if (!next.read) mark(next, true)
+        setFocusKey(next.key)
+      }
+      useEffect(() => {
+        if (focusKey === null) return
+        const head = document.querySelector(`#nib-${focusKey} .nib-head`)
+        head?.focus({ preventScroll: true })
+        head?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        setFocusKey(null)
+      }, [focusKey])
+      const undoAnswer = async (item, answer) => {
+        await call('undo', { press: answer.press })
+        changed()
+      }
       const markAll = () => call('read', { all: true }).then(changed, reason => setError(reason.message))
 
       const groups = summary?.groups ?? {}
@@ -467,9 +590,11 @@ window.__ModuleLoader__.load({
       const grouped = view === 'needs-you'
       const byGroup = new Map(GROUPS.map(group => [group, []]))
       for (const item of items ?? []) byGroup.get(placed.current.get(item.key)?.group ?? item.group)?.push(item)
+      if (grouped) for (const [key, item] of settled) if (!(items ?? []).some(row => row.key === key)) byGroup.get(placed.current.get(key)?.group ?? 'needs-you').push(item)
       const rank = item => placed.current.get(item.key)?.rank ?? 0
       for (const list of byGroup.values()) list.sort((a, b) => rank(a) - rank(b))
-      const itemRow = (item, group = item.group) => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, onToggle: toggle, onMark: mark })
+      order.current = byGroup.get('needs-you')
+      const itemRow = (item, group = item.group) => h(Item, { key: item.key, item, group, kit, ui, t, domains, open: open === item.key, settled: settled.has(item.key) && !(items ?? []).some(row => row.key === item.key), onToggle: toggle, onMark: mark, onAnswered: answeredItem, onUndo: undoAnswer })
       const filters = [['needs-you', t('group.needs-you'), groups['needs-you'] ?? 0], ['all', t('filter.all'), total], ['unread', t('filter.unread'), unread]]
 
       return h('div', { className: 'nib-page' },

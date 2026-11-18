@@ -66,7 +66,7 @@ function askItem(ask, record) {
     attention: 'needs-you',
     // The ask says who asked; a notification about it may name a session the ask has since dropped.
     session: ask.session,
-    ask: { id: ask.id, points: ask.points, next: ask.next, due: ask.due, text: ask.text },
+    ask: { id: ask.id, points: ask.points, next: ask.next, due: ask.due, text: ask.text, since: ask.since, replied: ask.replied, how: ask.how },
     read: record === undefined ? ask.read : base.read,
   }
 }
