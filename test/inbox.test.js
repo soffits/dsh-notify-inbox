@@ -29,7 +29,7 @@ async function file(person, ...rows) {
   await appendFile(join(dir, person, 'inbox.jsonl'), rows.map(row => `${typeof row === 'string' ? row : JSON.stringify(row)}\n`).join(''))
 }
 
-function setup({ mapping = true, provider = true, events, reply } = {}) {
+function setup({ mapping = true, provider = true, events, reply, quiet = [] } = {}) {
   let current = null
   const identity = { current: () => current }
   const as = id => { current = id === null ? null : { provider: 'oidc', issuer: 'https://id.example', id } }
@@ -43,7 +43,7 @@ function setup({ mapping = true, provider = true, events, reply } = {}) {
   const emitted = []
   const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
   const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
-  const routes = createRoutes({ store, people, push, actions, changes, reply, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12 })
+  const routes = createRoutes({ store, people, push, actions, changes, reply, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -457,4 +457,16 @@ test('the words are read for each request and never cached', async () => {
   const got = await call('strings')
   assert.equal(got.headers.get('cache-control'), 'no-store')
   assert.equal(got.body.tables.en.title, 'Inbox')
+})
+
+test('a quiet person gets a dot, never a count, on the bell', async () => {
+  await file('ana', record('a1'))
+  await file('bo', record('b1'))
+  const { as, call } = setup({ quiet: ['Bo'] })
+  as(BO_SUB)
+  const bo = (await call('summary')).body
+  assert.equal(bo.badge, 'dot')
+  assert.equal(bo.unread, 1)
+  as(ANA_SUB)
+  assert.equal((await call('summary')).body.badge, 'count')
 })

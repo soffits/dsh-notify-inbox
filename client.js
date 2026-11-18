@@ -92,6 +92,7 @@ window.__ModuleLoader__.load({
 .nib-empty{padding:48px 20px;text-align:center;color:var(--dsw-alias-label-tertiary)}
 .nib-error{color:var(--dsw-alias-state-error-primary)}
 .nib-more{display:flex;justify-content:center}
+.nib-dot{position:absolute;top:-2px;right:-3px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);pointer-events:none}
 .nib-badge{position:absolute;top:-5px;right:-8px;min-width:14px;height:14px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--dsw-alias-state-error-primary);color:#fff;font-size:9px;font-weight:600;line-height:14px;text-align:center;pointer-events:none}
 .nib-bell{position:relative;display:inline-flex}
 @media (width<=640px){.nib-content{padding-inline:12px}.nib-heading{padding-top:16px}.nib-item{padding:8px 6px}.nib-line{gap:10px}}
@@ -100,7 +101,7 @@ window.__ModuleLoader__.load({
 
     // ---- shared state: the counts and a version that bumps when anything changes ----
 
-    const shared = { unread: 0, version: 0, linked: null, ui: null, kit: null, summary: null, openSession: () => {} }
+    const shared = { unread: 0, badge: 'count', version: 0, linked: null, ui: null, kit: null, summary: null, openSession: () => {} }
     const listeners = new Set()
     const emit = () => { for (const listener of listeners) listener() }
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
@@ -120,10 +121,11 @@ window.__ModuleLoader__.load({
     async function refreshSummary() {
       try {
         const summary = await call('summary')
-        const key = JSON.stringify([summary.unread, summary.latest, summary.total, summary.groups, summary.line])
+        const key = JSON.stringify([summary.unread, summary.badge, summary.latest, summary.total, summary.groups, summary.line])
         if (key !== lastSummary) {
           lastSummary = key
           shared.unread = summary.unread
+          shared.badge = summary.badge === 'dot' ? 'dot' : 'count'
           shared.summary = summary
           shared.version += 1
           emit()
@@ -501,9 +503,12 @@ window.__ModuleLoader__.load({
 
     function SidebarIcon({ size }) {
       const unread = useShared(s => s.unread)
+      const badge = useShared(s => s.badge)
       return h('span', { className: 'nib-bell' },
         h(BellGlyph, { size }),
-        unread > 0 && h('span', { className: 'nib-badge' }, unread > 99 ? '99+' : String(unread)))
+        unread > 0 && (badge === 'dot'
+          ? h('span', { className: 'nib-dot' })
+          : h('span', { className: 'nib-badge' }, unread > 99 ? '99+' : String(unread))))
     }
 
     return {

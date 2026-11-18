@@ -43,6 +43,7 @@ Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a pro
 | `summaryHours` | `12` | How long the summary line is shown after it was written. |
 | `replyCwd` | host default | The folder of the new session a reply opens when the ask names no session, or the one it names is gone (below). |
 | `replyPreset` | host default | The agent preset of that new session. |
+| `quiet` | none | People (person ids) whose bell never shows a count: a soft grey dot says something is new instead of a red number, for someone who wants their inbox to invite rather than nag. |
 
 **Who sees what.** With a mapping, every request is checked on the server: a person sees, marks and presses only their own inbox, and a request without a verified identity sees nothing. The identity comes from any plugin that provides a `requestIdentity` service (`current()` → `{ provider, issuer, id, name } | null`), such as [dsh-oidc](https://github.com/soffits/dsh-oidc) 0.3.0-alpha.9 or later. Without a mapping (a DSH only you use), you see every folder.
 
