@@ -73,7 +73,7 @@ window.__ModuleLoader__.load({
 .nib-unread .nib-title,.nib-group[data-group=urgent] .nib-title,.nib-group[data-group=needs-you] .nib-title,.nib-group[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
 .nib-points{flex:none;align-self:center;padding:0 6px;border-radius:9px;font-size:12px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .nib-reply{display:flex;flex-direction:column;gap:6px;max-width:640px}
-.nib-reply textarea{box-sizing:border-box;width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--dsw-alias-border-primary,var(--dsw-alias-label-quaternary));border-radius:10px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;resize:vertical}
+.nib-reply textarea{box-sizing:border-box;width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;resize:vertical}
 .nib-replyBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .nib-open .nib-title{-webkit-line-clamp:unset}
 .nib-when{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:23px;color:var(--dsw-alias-label-caption)}
