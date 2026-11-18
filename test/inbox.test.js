@@ -42,8 +42,8 @@ function setup({ mapping = true, provider = true, events } = {}) {
   })
   const emitted = []
   const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
-  const changes = createChanges({ dataDir: dir, persons: () => store.persons(), intervalMs: 20 })
-  const routes = createRoutes({ store, people, push, actions, changes, identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, pollSeconds: 30 })
+  const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
+  const routes = createRoutes({ store, people, push, actions, changes, identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12 })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -120,16 +120,57 @@ test('mark unread works on its own and past the mark-all watermark; mark-all cle
   assert.equal((await call('summary')).body.unread, 0)
 })
 
-test('under Needs you, items the page already shows stay as they are done or snoozed', async () => {
-  await file('ana', record('a1'), record('a2', { time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }))
+const ASK_DONE = { kind: 'done', id: 'done', payload: { source: 'todo', uuid: 'u1' }, inverse: { kind: 'reopen', payload: {} } }
+const ask = (id, extra = {}) => ({ id, title: `Ask ${id}`, text: `Which one, ${id}?`, time: '2026-11-17T14:00:00Z', points: 3, session: 'session-abc', domain: 'todo', actions: [ASK_DONE], ...extra })
+const asks = async (person, ...rows) => {
+  await mkdir(join(dir, person), { recursive: true })
+  await writeFile(join(dir, person, 'asks.json'), JSON.stringify({ v: 1, person, asks: rows }))
+}
+
+test('the asks file decides Needs you: open asks show with or without a record, a closed one is handled', async () => {
+  await file('ana',
+    record('a1', { thread: 'todo:1', attention: 'needs-you', actions: [], session: 'session-old' }),
+    record('a2', { thread: 'todo:2', attention: 'needs-you', time: '2026-11-17T16:00:00Z' }),
+    record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }),
+    record('a4', { lane: 'interrupt', attention: 'needs-you', actions: [], time: '2026-11-17T13:00:00Z' }))
+  await asks('ana', ask('todo:1'), ask('todo:3', { title: 'Only in the list', points: 5, next: '2026-11-18' }))
   const { as, call } = setup()
   as(ANA_SUB)
-  const pressed = await call('action', { record: 'a2', action: 'done' })
-  await file('ana', { v: 1, type: 'handled', record: 'a2', press: pressed.body.press, action: 'done', result: 'done', time: '2026-11-17T16:01:00Z' })
-  const kept = (await call('items?view=needs-you&keep=a1,a2,nope/../x')).body.items
+  const items = (await call('items')).body.items
+  assert.deepEqual(items.map(item => [item.id, item.group, item.moved]),
+    [['a4', 'urgent', null], ['a1', 'needs-you', null], ['todo:3', 'needs-you', null], ['a2', 'handled', 'closed'], ['a3', 'info', null]])
+  const one = items.find(item => item.id === 'a1')
+  assert.deepEqual([one.title, one.session, one.ask.points, one.actions.map(a => a.kind)], ['Ask todo:1', 'session-abc', 3, ['done']])
+  const only = items.find(item => item.id === 'todo:3')
+  assert.deepEqual([only.text, only.ask.points, only.ask.next, only.read], ['Which one, todo:3?', 5, '2026-11-18', false])
+  assert.equal((await call('summary')).body.groups['needs-you'], 2)
+  await call('read', { ids: ['todo:3'] })
+  assert.equal((await call('items')).body.items.find(item => item.id === 'todo:3').read, true)
+})
+
+test("a press on an ask goes out with the ask's own buttons, for the ask and every record in its thread", async () => {
+  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }))
+  await asks('ana', ask('todo:1'), ask('todo:9'))
+  const { as, call, emitted } = setup()
+  as(ANA_SUB)
+  assert.equal((await call('action', { record: 'todo:9', action: 'done' })).status, 200)
+  assert.equal((await call('action', { record: 'a1', action: 'done' })).status, 200)
+  assert.deepEqual(emitted.map(e => [e.data.source.record, e.data.payload]), [['todo:9', { source: 'todo', uuid: 'u1' }], ['a1', { source: 'todo', uuid: 'u1' }]])
+  assert.equal((await call('action', { record: 'a1', action: 'snooze' })).status, 400, "the ask's buttons replace the record's")
+  as(BO_SUB)
+  assert.equal((await call('action', { record: 'todo:9', action: 'done' })).status, 404)
+})
+
+test('under Needs you, items the page already shows stay as their asks close', async () => {
+  await file('ana', record('a1', { thread: 'todo:1', attention: 'needs-you' }), record('a2', { thread: 'todo:2', attention: 'needs-you', time: '2026-11-17T16:00:00Z' }), record('a3', { time: '2026-11-17T17:00:00Z', actions: [] }))
+  await asks('ana', ask('todo:1'), ask('todo:2'))
+  const { as, call } = setup()
+  as(ANA_SUB)
+  const shown = (await call('items?view=needs-you')).body.items.map(item => item.key)
+  await asks('ana', ask('todo:1'))
+  const kept = (await call(`items?view=needs-you&keep=${shown.join(',')},nope/../x`)).body.items
   assert.deepEqual(kept.map(item => [item.id, item.group]), [['a1', 'needs-you'], ['a2', 'handled']])
   assert.deepEqual((await call('items?view=needs-you')).body.items.map(item => item.id), ['a1'])
-  assert.deepEqual((await call('items')).body.items.map(item => [item.id, item.group]), [['a1', 'needs-you'], ['a2', 'handled'], ['a3', 'info']])
 })
 
 test('bad lines are skipped and counted, a half-written line waits, a rewritten file is read again', async () => {
@@ -163,7 +204,7 @@ test('a step press is recorded as the person\'s go-ahead, per step button', asyn
 })
 
 test('a done press becomes an action event, is logged, and shows handled once the router says so', async () => {
-  await file('ana', record('a1'))
+  await file('ana', record('a1', { lane: 'interrupt' }))
   const { as, call, emitted } = setup()
   as(ANA_SUB)
   const pressed = await call('action', { record: 'a1', action: 'done' })
@@ -180,7 +221,7 @@ test('a done press becomes an action event, is logged, and shows handled once th
   assert.equal(item.read, true)
   assert.equal(item.presses[0].press, event.data.press)
   assert.deepEqual(item.outcomes, [])
-  assert.equal(item.group, 'needs-you')
+  assert.equal(item.group, 'urgent')
   await file('ana', { v: 1, type: 'handled', record: 'a1', press: event.data.press, action: 'done', result: 'done', time: '2026-11-17T15:01:00Z' })
   ;[item] = (await call('items')).body.items
   assert.equal(item.outcomes[0].result, 'done')
@@ -322,12 +363,12 @@ test('groups come from the writer, else from lane and buttons; counts, the summa
   as(ANA_SUB)
   const items = (await call('items')).body.items
   const by = Object.fromEntries(items.map(item => [item.id, item]))
-  assert.deepEqual(items.map(item => [item.id, item.group]), [['n1', 'needs-you'], ['l1', 'live'], ['h1', 'handled'], ['i1', 'info'], ['l2', 'info'], ['e1', 'info']])
+  assert.deepEqual(items.map(item => [item.id, item.group]), [['n1', 'urgent'], ['l1', 'live'], ['h1', 'handled'], ['i1', 'info'], ['l2', 'info'], ['e1', 'info']])
   assert.deepEqual([by.l1.liveNow, by.l2.liveNow, by.l2.moved], [true, false, 'ended'])
   assert.deepEqual(by.h1.handled, { text: 'Asked again; follow-up set.' })
   assert.deepEqual(by.l1.live.progress, { from: past, to: soon })
   const summary = (await call('summary')).body
-  assert.deepEqual(summary.groups, { 'needs-you': 1, live: 1, handled: 1, info: 3 })
+  assert.deepEqual(summary.groups, { urgent: 1, 'needs-you': 0, live: 1, handled: 1, info: 3 })
   assert.equal(summary.line.text, 'Two things need you.')
   assert.deepEqual([summary.domains.legal, summary.domains.travel], [{ icon: 'scale', tone: 'violet' }, { icon: 'plane' }])
   await writeFile(join(dir, 'ana', 'summary.json'), JSON.stringify({ text: 'Old news.', at: '2026-01-01T00:00:00Z' }))
@@ -335,7 +376,7 @@ test('groups come from the writer, else from lane and buttons; counts, the summa
 })
 
 test('a snoozed item waits under info until it comes back', async () => {
-  await file('ana', record('a1'))
+  await file('ana', record('a1', { lane: 'interrupt' }))
   const { as, call } = setup()
   as(ANA_SUB)
   const pressed = await call('action', { record: 'a1', action: 'snooze', until: new Date(Date.now() + 3600e3).toISOString() })
@@ -348,6 +389,7 @@ test('the events stream tells an open page when its own inbox changed, and only 
   await file('ana', record('a1'))
   await file('bo', record('b1'))
   const { as, byPath, changes } = setup()
+  await changes.start()
   as(ANA_SUB)
   const abort = new AbortController()
   const response = await byPath.get('/api/notify-inbox/events')(new Request('https://dsh.example/api/notify-inbox/events', { signal: abort.signal }))
@@ -374,6 +416,9 @@ test('the events stream tells an open page when its own inbox changed, and only 
     assert.equal(await until(/"type":"change"/, 200), false, "bo's change is not ana's news")
     await file('ana', record('a2'))
     assert.ok(await until(/"type":"change"/))
+    seen = ''
+    await asks('ana', ask('todo:1'))
+    assert.ok(await until(/"type":"change"/), 'a new asks file is news too')
   } finally {
     abort.abort()
     changes.stop()

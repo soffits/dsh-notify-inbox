@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Asks: whatever keeps the person's list of open asks (a Todo) writes them to `<person>/asks.json`, and with that file there it alone decides **Needs you**. Each open ask is one item, with the notifications of its thread folded in; one that left the file shows as Handled ("Settled"). An ask's `points` show beside its title, and its own buttons, title and session win over its notifications'.
+- Reply where you read: an ask (or a notification with `session`) has a reply box that sends your answer into the session that asked, as you, through `@soffits/dsh-ui-actions`' `start`, with the ask quoted in.
+- **Breaking:** a new group **Urgent** on top: interrupts default to it (done and snooze move them on as before). `needs-you` is no longer a default for interrupts or for notifications with done or snooze buttons; it is for asks.
+- No polling: the plugin watches the folders (`fs.watch`) for the page's change notices and pushes new records the moment the inbox file changes, and the Web UI follows the events stream for its counts instead of a timer. The `pollSeconds` option is gone (an old value is ignored).
+
 ## 0.5.0
 
 - A new page, built from DSH's own components and the shared [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit), which is now required. Notifications are grouped as Needs you, Live, Handled and To know, with the counts on top, an optional summary line (`summary.json`) and each domain's icon on a tinted tile (`domains` setting). [docs/ui.md](docs/ui.md) lists what is DSH's and what is the plugin's own.

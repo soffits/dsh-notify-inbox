@@ -12,7 +12,7 @@ From `@deepseek-ai/dsh-client-ui-primitives`, which DSH puts in every plugin's m
 | `Pill` | The Needs you / All filters, as on the Automation page |
 | `Menu`, `Tooltip` | The ⋯ menu: notifications on this device, a test push |
 | `StateDot` | The green dot on a live item |
-| `IconCheckCircleOutlineRegular`, `IconEllipsisOutlineRegular` | The handled check, the ⋯ trigger |
+| `IconCheckCircleOutlineRegular`, `IconEllipsisOutlineRegular`, `IconSendOutlineRegular` | The handled check, the ⋯ trigger, the reply's Send |
 | Theme tokens (`--dsw-alias-*`) | Every colour, so light and dark follow the Web UI |
 
 The page's layout copies the numbers of DSH's own pages, since their CSS modules aren't shared: the frame (960 px column, 28 px top inset, `clamp(24px, 4vw, 48px)` sides) and rows (12 px radius, 8 px padding, 12 px gap, 13 px tertiary summary) of the Automation page, and the group headings (14 px medium title, count beside it) of the plugin manager.
@@ -25,11 +25,13 @@ From [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit) (`ctx.uiKit`),
 
 ## Ours
 
-About forty lines of CSS in `client.js`, only for layout DSH doesn't expose:
+About fifty lines of CSS in `client.js`, only for layout DSH doesn't expose:
 
 - **The page frame, rows and group headings**, with the values above. A row is a disclosure (the header is a button, the details open below it), which no DSH primitive draws.
 - **Two-line titles and summaries** (`line-clamp`), so a phone shows the whole of a short title instead of cutting it.
-- **The counts line** (`Needs you 2 · Live 1 · …`), joined the way DSH joins row metadata.
+- **The counts line** (`Urgent 1 · Needs you 2 · Live 1 · …`), joined the way DSH joins row metadata.
+- **An ask's points** (`+3`): a small tinted label beside the title in the accent colour; DSH has no badge primitive for a row.
+- **The reply box** under an opened ask: a native `textarea` with DSH's border, radius and background tokens, since DSH exports no multi-line input.
 - **The unread badge on the sidebar bell**: DSH's sidebar has no count badge for an entry.
 - **Phone sizes**: at 640 px and below, or with a touch pointer, every control is at least 40 px tall, as DSH's own controls are only on desktop.
 

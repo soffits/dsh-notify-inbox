@@ -7,7 +7,8 @@
  *   GET  /api/notify-inbox/items?view=needs-you&keep=&before=&limit=
  *   GET  /api/notify-inbox/events                    text/event-stream: a notice whenever the caller's inbox changed
  *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
- *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press
+ *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press (record: a
+ *                                                    record id or an ask's id; an ask's own buttons win in its thread)
  *   GET  /api/notify-inbox/file?id=&name=            a stored attachment
  *   GET  /api/notify-inbox/push/config               { publicKey }
  *   POST /api/notify-inbox/push/state                { endpoint } → { subscribed }
@@ -70,9 +71,8 @@ async function body(request) {
  * @param {ReturnType<import('./changes.js').createChanges>} options.changes
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
- * @param {number} options.pollSeconds
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours, pollSeconds }) {
+export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours }) {
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
     const viewer = await viewerOf(people, identity())
@@ -100,15 +100,15 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
 
   /** The caller's items, folded and grouped as of now. */
   async function itemsOf(who) {
-    const { items: records, bad } = await store.view(who.folders)
-    return { items: buildItems(records, Date.now()), bad }
+    const { items: records, asks, bad } = await store.view(who.folders)
+    return { items: buildItems(records, Date.now(), asks), bad }
   }
 
   const summary = handle(async (_request, who) => {
     const [{ items, bad }, line] = await Promise.all([itemsOf(who), store.summaryLine(who.folders, summaryHours)])
     const { groups, unread } = countItems(items)
     const latest = items.reduce((newest, item) => (newest === null || item.time > newest ? item.time : newest), null)
-    return json(200, { mode: who.mode, person: who.person, unread, groups, total: items.length, latest, line, domains, problems: { badLines: bad }, pollSeconds })
+    return json(200, { mode: who.mode, person: who.person, unread, groups, total: items.length, latest, line, domains, problems: { badLines: bad } })
   })
 
   const list = handle(async (request, who) => {
@@ -168,12 +168,18 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     })
   })
 
-  /** The record with this id the caller may see, or undefined. */
+  /**
+   * The record (or open ask) with this id the caller may see, with the buttons it answers to: an open
+   * ask's own for the ask and every record in its thread. Undefined when there is none.
+   */
   async function recordOf(who, id) {
     if (typeof id !== 'string' || !RECORD_ID_PATTERN.test(id)) return undefined
     for (const person of who.folders) {
+      const { asks } = await store.asks(person)
       const record = (await store.records(person)).records.find(row => row.id === id)
-      if (record !== undefined) return record
+      const ask = asks.find(row => row.id === id || row.id === record?.thread)
+      if (record !== undefined) return ask === undefined ? record : { ...record, actions: [...record.actions.filter(a => a.kind !== 'done' && a.kind !== 'snooze'), ...ask.actions] }
+      if (ask !== undefined) return { ...ask, key: '', thread: ask.id }
     }
     return undefined
   }

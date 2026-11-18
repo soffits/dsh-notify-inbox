@@ -3,9 +3,14 @@
  * `thread` fold into one item, the newest on top and the older ones as its
  * history; a live thread's newest record simply replaces the item. Each item
  * gets the group it shows in now, which can differ from what its writer said:
- * a needs-you item the person marked done is handled, a snoozed one waits
- * under info until it comes back as a new record, and a live item whose time
- * is over is info.
+ * an urgent item the person marked done is handled, a snoozed one waits under
+ * info until it comes back as a new record, and a live item whose time is over
+ * is info.
+ *
+ * A person whose inbox has an asks file (`asks.json`) gets their "Needs you"
+ * from it alone: each open ask is one item, with the records of its thread
+ * folded in when there are any, and a record that said needs-you but whose
+ * ask is no longer open has been dealt with in its source, so it is handled.
  */
 import { createHash } from 'node:crypto'
 import { GROUPS } from './store.js'
@@ -29,10 +34,15 @@ export function liveNow(record, now) {
 
 /**
  * The group an item's newest record shows in at `now`, with `moved` saying why when it isn't the
- * writer's: 'done' (the person marked it done), 'snoozed', or 'ended' (a live item past its time).
+ * writer's: 'done' (the person marked it done), 'snoozed', 'ended' (a live item past its time) or
+ * 'closed' (its ask is no longer open). `asked` is the person's asks (`{ present, open: Set }`).
  */
-export function groupOf(record, now) {
-  if (record.attention === 'needs-you') {
+export function groupOf(record, now, asked = { present: false, open: new Set() }) {
+  if (record.attention === 'needs-you' && asked.present) {
+    if (asked.open.has(record.thread)) return { group: 'needs-you', moved: null }
+    return record.thread === '' ? { group: record.lane === 'interrupt' ? 'urgent' : 'info', moved: null } : { group: 'handled', moved: 'closed' }
+  }
+  if (record.attention === 'urgent' || record.attention === 'needs-you') {
     const last = record.outcomes.findLast(row => row.result === 'done' || row.result === 'snoozed')
     if (last?.result === 'done') return { group: 'handled', moved: 'done' }
     if (last?.result === 'snoozed' && (last.until === undefined || Date.parse(last.until) > now)) return { group: 'info', moved: 'snoozed' }
@@ -41,11 +51,32 @@ export function groupOf(record, now) {
   return { group: record.attention, moved: null }
 }
 
+/** An open ask as an item: alone, or on top of its thread's newest record. */
+function askItem(ask, record) {
+  const base = record ?? {
+    id: ask.id, person: ask.person, time: ask.time, lane: 'next-moment', domain: ask.domain, title: ask.title, spoken: '',
+    text: ask.text, links: [], files: [], source: '', key: '', actions: [], thread: ask.id, live: null, handled: null,
+    session: null, test: false, push: false, routed: [], read: ask.read, outcomes: ask.outcomes,
+  }
+  return {
+    ...base,
+    title: ask.title,
+    text: record === undefined || record.text === '' ? ask.text : record.text,
+    actions: [...base.actions.filter(action => action.kind !== 'done' && action.kind !== 'snooze'), ...ask.actions],
+    attention: 'needs-you',
+    session: ask.session ?? base.session,
+    ask: { id: ask.id, points: ask.points, next: ask.next, due: ask.due, text: ask.text },
+    read: record === undefined ? ask.read : base.read,
+  }
+}
+
 /**
- * Fold records (newest first, each with `read` and `outcomes`) into items, ordered by group
- * (needs-you, live, handled, info) and newest first within a group.
+ * Fold records (newest first, each with `read` and `outcomes`) and the people's asks (person →
+ * `{ present, asks }`) into items, ordered by group (urgent, needs-you, live, handled, info) and
+ * newest first within a group.
  */
-export function buildItems(records, now) {
+export function buildItems(records, now, asking = new Map()) {
+  const asked = new Map([...asking].map(([person, value]) => [person, { present: value.present, open: new Map(value.asks.map(ask => [ask.id, ask])) }]))
   const byKey = new Map()
   for (const record of records) {
     const key = itemKey(record)
@@ -58,7 +89,18 @@ export function buildItems(records, now) {
     item.read &&= record.read
     if (item.history.length < HISTORY_MAX) item.history.push({ id: record.id, time: record.time, title: record.title, spoken: record.spoken })
   }
-  const items = [...byKey.values()].map(item => ({ ...item, ...groupOf(item, now), liveNow: liveNow(item, now) }))
+  for (const [person, { open }] of asked) {
+    for (const ask of open.values()) {
+      const key = itemKey({ person, thread: ask.id, id: ask.id })
+      const folded = byKey.get(key)
+      byKey.set(key, folded === undefined ? { ...askItem(ask), key, ids: [ask.id], history: [] } : { ...askItem(ask, folded), key, ids: folded.ids, history: folded.history })
+    }
+  }
+  const items = [...byKey.values()].map(item => {
+    const mine = asked.get(item.person)
+    const where = groupOf(item, now, mine === undefined ? undefined : { present: mine.present, open: mine.open })
+    return { ...item, ...where, liveNow: liveNow(item, now) }
+  })
   const rank = group => GROUPS.indexOf(group)
   return items.sort((a, b) => rank(a.group) - rank(b.group) || (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
 }

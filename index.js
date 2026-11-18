@@ -47,13 +47,11 @@ export const Config = z.object({
     .description('How each domain (the record\'s domain field) is drawn, on top of the built-in defaults (mail, money, health, travel, home...).'),
   summaryHours: z.natural().min(1).max(168).default(12)
     .description('How long the summary line (<dataDir>/<person>/summary.json) is shown after it was written.'),
-  pollSeconds: z.natural().min(2).max(3600).default(5)
-    .description('How often new records are looked for (to push them), and how often an open page refreshes its count (at least 15 s).'),
 })
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, domains: Record<string, { icon: string, tone?: string }>, summaryHours: number, pollSeconds: number }} config
+ * @param {{ dataDir: string, people: Record<string, string>, peopleFile: string, peopleKey: string, vapidFile: string, vapidSubject: string, domains: Record<string, { icon: string, tone?: string }>, summaryHours: number }} config
  */
 export function apply(ctx, config) {
   const logger = ctx.logger('notify-inbox')
@@ -78,9 +76,26 @@ export function apply(ctx, config) {
     warn,
   })
   const actions = createActions({ dataDir, events: () => ctx.get('cronJobs'), warn })
-  const pollSeconds = config.pollSeconds ?? 5
   const strings = readLocales(fileURLToPath(new URL('./locale/', import.meta.url))).then(tables)
-  const changes = createChanges({ dataDir, persons: () => store.persons() })
+  // New records are pushed when the inbox file changes; one scan at a time, and one more if a change came meanwhile.
+  let scanning = null
+  let again = false
+  const scan = async () => {
+    if (scanning !== null) { again = true; return }
+    scanning = (async () => {
+      do {
+        again = false
+        try {
+          await push.scan(await store.persons())
+        } catch (error) {
+          warn(`push scan failed: ${error.message}`)
+        }
+      } while (again)
+    })()
+    await scanning
+    scanning = null
+  }
+  const changes = createChanges({ dataDir, persons: () => store.persons(), warn, onChange: (_person, file) => { if (file === 'inbox.jsonl') scan() } })
   const routes = createRoutes({
     store, people, push, actions, changes,
     identity: () => ctx.get('requestIdentity'),
@@ -88,25 +103,13 @@ export function apply(ctx, config) {
     strings: () => strings,
     domains: domainMap(config.domains ?? {}),
     summaryHours: config.summaryHours ?? 12,
-    pollSeconds: Math.max(pollSeconds, 15),
   })
   for (const route of routes) ctx.connection.fetch.register(route)
 
-  let stopped = false
-  let timer
-  const scan = async () => {
-    try {
-      await push.scan(await store.persons())
-    } catch (error) {
-      warn(`push scan failed: ${error.message}`)
-    }
-    if (!stopped) timer = setTimeout(scan, pollSeconds * 1000)
-  }
-  push.vapid().then(() => scan(), error => logger.error(`Web Push keys unusable, push is off: ${error.message}`))
-  ctx.on('dispose', () => {
-    stopped = true
-    clearTimeout(timer)
-    changes.stop()
+  push.vapid().then(() => changes.start().then(scan), error => {
+    logger.error(`Web Push keys unusable, push is off: ${error.message}`)
+    return changes.start()
   })
+  ctx.on('dispose', () => changes.stop())
   logger.info(`inbox at ${dataDir} (${people.enabled ? 'per person' : 'single owner'})`)
 }
