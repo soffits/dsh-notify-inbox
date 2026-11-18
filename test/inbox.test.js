@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDecipheriv, createECDH, hkdfSync } from 'node:crypto'
 import { createPeople } from '../src/access.js'
-import { createActions } from '../src/actions.js'
 import { createChanges } from '../src/changes.js'
 import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'
@@ -29,7 +28,7 @@ async function file(person, ...rows) {
   await appendFile(join(dir, person, 'inbox.jsonl'), rows.map(row => `${typeof row === 'string' ? row : JSON.stringify(row)}\n`).join(''))
 }
 
-function setup({ mapping = true, provider = true, events, quiet = [] } = {}) {
+function setup({ mapping = true, provider = true, quiet = [] } = {}) {
   let current = null
   const identity = { current: () => current }
   const as = id => { current = id === null ? null : { provider: 'oidc', issuer: 'https://id.example', id } }
@@ -40,10 +39,8 @@ function setup({ mapping = true, provider = true, events, quiet = [] } = {}) {
     dataDir: dir, vapidFile: join(dir, 'keys', 'vapid.json'), subject: 'mailto:a@example.org', perPerson: () => people.enabled, warn: () => {},
     fetchImpl: async (url, init) => { pushes.push({ url, init }); return new Response(null, { status: url.includes('gone') ? 410 : 201 }) },
   })
-  const emitted = []
-  const actions = createActions({ dataDir: dir, events: () => events ?? { controller: () => ({ emit: input => { emitted.push(input); return { matched: ['job-1'] } } }) }, warn: () => {} })
   const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
-  const routes = createRoutes({ store, people, push, actions, changes, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
+  const routes = createRoutes({ store, people, push, changes, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')
@@ -53,7 +50,7 @@ function setup({ mapping = true, provider = true, events, quiet = [] } = {}) {
     const type = response.headers.get('content-type') ?? ''
     return { status: response.status, body: type.includes('json') ? await response.json() : await response.text(), headers: response.headers }
   }
-  return { as, call, store, push, pushes, emitted, changes, byPath }
+  return { as, call, store, push, pushes, changes, byPath }
 }
 
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'notify-inbox-')) })
@@ -132,62 +129,6 @@ test('bad lines are skipped and counted, a half-written line waits, a rewritten 
   assert.deepEqual((await call('items')).body.items.map(item => item.id), ['a9'])
   await writeFile(join(dir, 'ana', 'inbox.jsonl'), `${JSON.stringify(record('a7', { title: 'A much longer title than before, so the rewritten file is bigger' }))}\n${JSON.stringify(record('a8'))}\n`)
   assert.deepEqual((await call('items')).body.items.map(item => item.id).sort(), ['a7', 'a8'], 'a file rewritten in place and grown is read again')
-})
-
-test('a step press is recorded as the person\'s go-ahead, per step button', async () => {
-  await file('ana', record('a1', { actions: [
-    { kind: 'step', id: 'pay', label: { en: 'Pay the invoice', zh: '付这张发票' }, payload: {} },
-    { kind: 'step', id: 'file', label: 'File it under taxes', payload: {} },
-  ] }))
-  const { as, call, emitted } = setup()
-  as(ANA_SUB)
-  assert.equal((await call('action', { record: 'a1', action: 'file' })).status, 200)
-  assert.equal(emitted[0].channel, 'ui.action.step')
-  assert.equal(emitted[0].data.person, 'ana')
-  assert.equal(emitted[0].data.id, 'file')
-  const [item] = (await call('items')).body.items
-  assert.deepEqual(item.presses.map(press => [press.action, press.id]), [['step', 'file']])
-  assert.deepEqual(item.actions[0].label, { en: 'Pay the invoice', zh: '付这张发票' })
-})
-
-test('a done press becomes an action event, is logged, and shows handled once the router says so', async () => {
-  await file('ana', record('a1', { lane: 'interrupt' }))
-  const { as, call, emitted } = setup()
-  as(ANA_SUB)
-  const pressed = await call('action', { record: 'a1', action: 'done' })
-  assert.equal(pressed.status, 200)
-  assert.equal(pressed.body.matched, 1)
-  const [event] = emitted
-  assert.equal(event.channel, 'ui.action.done')
-  assert.equal(event.data.person, 'ana')
-  assert.deepEqual(event.data.source, { plugin: 'notify-inbox', record: 'a1', key: 'k-a1', domain: 'orders' })
-  assert.equal(event.key, event.data.press)
-  const log = (await readFile(join(dir, 'ana', 'actions.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  assert.equal(log[0].press, event.data.press)
-  let [item] = (await call('items')).body.items
-  assert.equal(item.read, true)
-  assert.equal(item.presses[0].press, event.data.press)
-  assert.deepEqual(item.outcomes, [])
-  assert.equal(item.group, 'urgent')
-  await file('ana', { v: 1, type: 'handled', record: 'a1', press: event.data.press, action: 'done', result: 'done', time: '2026-11-17T15:01:00Z' })
-  ;[item] = (await call('items')).body.items
-  assert.equal(item.outcomes[0].result, 'done')
-  assert.deepEqual([item.group, item.moved], ['handled', 'done'])
-  assert.equal((await call('summary')).body.total, 1, 'a status line is not a record')
-})
-
-test('presses are checked: only declared buttons, only your own records, snooze keeps its time', async () => {
-  await file('ana', record('a1'))
-  await file('bo', record('b1'))
-  const { as, call, emitted } = setup()
-  as(ANA_SUB)
-  assert.equal((await call('action', { record: 'b1', action: 'done' })).status, 404)
-  assert.equal((await call('action', { record: 'a1', action: 'explode' })).status, 400)
-  await call('action', { record: 'a1', action: 'snooze', until: '2026-11-18T09:00:00-05:00' })
-  assert.equal(emitted[0].data.payload.until, '2026-11-18T09:00:00-05:00')
-  const without = setup({ events: {} })
-  without.as(ANA_SUB)
-  assert.equal((await without.call('action', { record: 'a1', action: 'done' })).body.published, false)
 })
 
 test('attachments are served only from the store, by a stored name', async () => {
@@ -322,16 +263,6 @@ test('groups come from the writer, else from lane and buttons; counts, the summa
   assert.equal((await call('summary')).body.line, null, 'an old summary line is not shown')
 })
 
-test('a snoozed item waits under info until it comes back', async () => {
-  await file('ana', record('a1', { lane: 'interrupt' }))
-  const { as, call } = setup()
-  as(ANA_SUB)
-  const pressed = await call('action', { record: 'a1', action: 'snooze', until: new Date(Date.now() + 3600e3).toISOString() })
-  await file('ana', { v: 1, type: 'handled', record: 'a1', press: pressed.body.press, action: 'snooze', result: 'snoozed', until: new Date(Date.now() + 3600e3).toISOString(), time: new Date().toISOString() })
-  const [item] = (await call('items')).body.items
-  assert.deepEqual([item.group, item.moved], ['info', 'snoozed'])
-})
-
 test('the events stream tells an open page when its own inbox changed, and only then', async () => {
   await file('ana', record('a1'))
   await file('bo', record('b1'))
@@ -429,7 +360,7 @@ test('Unread lists only unread items in time order, and keeps what the page alre
 })
 
 
-test('the inbox holds notices: a record about an ask is an ordinary item, and an asks file beside it is not read', async () => {
+test('the inbox holds notices: a record about an ask is an ordinary item with no buttons, and an asks file beside it is not read', async () => {
   await file('ana',
     record('a1', { attention: 'needs-you', thread: 'todo:u1', todo: 'u1', session: 'session-abc' }),
     record('a2', { attention: 'needs-you', lane: 'interrupt', time: '2026-11-17T15:01:00Z' }))
@@ -442,4 +373,6 @@ test('the inbox holds notices: a record about an ask is an ordinary item, and an
   const { groups } = (await call('summary')).body
   assert.deepEqual(groups, { urgent: 1, live: 0, handled: 0, info: 1 })
   assert.equal(byPath.has('/api/notify-inbox/reply'), false, 'there is no reply box to answer from')
+  assert.equal(items[1].actions, undefined, 'a notice carries no buttons, whatever its writer filed')
+  for (const route of ['action', 'undo']) assert.equal(byPath.has(`/api/notify-inbox/${route}`), false)
 })

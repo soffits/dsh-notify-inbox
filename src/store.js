@@ -68,14 +68,6 @@ export function attentionOf(record) {
   return 'info'
 }
 
-const actionsOf = raw => list(raw).filter(action => typeof action?.kind === 'string' && typeof action?.id === 'string').map(action => ({
-  kind: action.kind,
-  id: action.id,
-  label: words(action.label) || undefined,
-  payload: typeof action.payload === 'object' && action.payload !== null && !Array.isArray(action.payload) ? action.payload : {},
-  ...(typeof action.inverse?.kind === 'string' ? { inverse: { kind: action.inverse.kind, payload: typeof action.inverse.payload === 'object' && action.inverse.payload !== null ? action.inverse.payload : {} } } : {}),
-}))
-
 /** A record as the page gets it, or undefined when the line is not one. */
 export function normalize(raw, person) {
   if (typeof raw !== 'object' || raw === null || !RECORD_ID_PATTERN.test(text(raw.id))) return undefined
@@ -99,7 +91,6 @@ export function normalize(raw, person) {
     })),
     source: text(raw.source),
     key: text(raw.key),
-    actions: actionsOf(raw.actions),
     attention: text(raw.attention),
     thread: text(raw.thread).trim().slice(0, MAX_THREAD),
     live: liveOf(raw.live),
@@ -119,21 +110,14 @@ export function normalize(raw, person) {
   return record
 }
 
-/** A "this press was handled" line the router appends after acting on a press, or undefined. */
-export function normalizeHandled(raw) {
-  if (raw?.type !== 'handled' || typeof raw.record !== 'string') return undefined
-  return { record: raw.record, press: text(raw.press), action: text(raw.action), result: text(raw.result), until: text(raw.until) || undefined, time: text(raw.time) }
-}
-
 /**
  * Complete lines in `chunk`, parsed; the unfinished tail (a write in progress) is left for next time.
- * Lines with a `type` are status lines, not records.
+ * Lines with a `type` are status lines an older writer appended, not records; they are skipped.
  */
 export function parseLines(chunk, person) {
   const end = chunk.lastIndexOf(0x0a)
-  if (end < 0) return { records: [], handled: [], bad: 0, used: 0 }
+  if (end < 0) return { records: [], bad: 0, used: 0 }
   const records = []
-  const handled = []
   let bad = 0
   for (const line of chunk.subarray(0, end).toString('utf8').split('\n')) {
     if (line.trim() === '') continue
@@ -144,16 +128,12 @@ export function parseLines(chunk, person) {
       bad += 1
       continue
     }
-    if (value?.type !== undefined) {
-      const status = normalizeHandled(value)
-      if (status !== undefined) handled.push(status)
-      continue
-    }
+    if (value?.type !== undefined) continue
     const record = normalize(value, person)
     if (record === undefined) bad += 1
     else records.push(record)
   }
-  return { records, handled, bad, used: end + 1 }
+  return { records, bad, used: end + 1 }
 }
 
 export async function readFrom(path, offset) {
@@ -224,24 +204,23 @@ export function createStore(dataDir) {
       info = await stat(path)
     } catch {
       cache.delete(person)
-      return { records: [], handled: [], bad: 0 }
+      return { records: [], bad: 0 }
     }
     let entry = cache.get(person)
     // A file rewritten in place (same inode, someone removed a line by hand) starts differently.
     const replaced = entry !== undefined && entry.head !== '' && (await readHead(path, entry.head.length)) !== entry.head
     if (entry === undefined || entry.ino !== info.ino || info.size < entry.offset || replaced) {
-      entry = { ino: info.ino, offset: 0, head: '', records: [], handled: [], bad: 0 }
+      entry = { ino: info.ino, offset: 0, head: '', records: [], bad: 0 }
       cache.set(person, entry)
     }
     if (info.size > entry.offset) {
       if (entry.offset === 0) entry.head = await readHead(path, HEAD_BYTES)
       const parsed = parseLines(await readFrom(path, entry.offset), person)
       entry.records.push(...parsed.records)
-      entry.handled.push(...parsed.handled)
       entry.bad += parsed.bad
       entry.offset += parsed.used
     }
-    return { records: entry.records, handled: entry.handled, bad: entry.bad }
+    return { records: entry.records, bad: entry.bad }
   }
 
   async function marks(person) {
@@ -291,17 +270,15 @@ export function createStore(dataDir) {
   }
 
   /**
-   * The records of these people, newest first, each with `read` and the `outcomes` of presses on it.
+   * The records of these people, newest first, each with `read`.
    */
   async function view(people) {
     const out = []
     let bad = 0
     for (const person of people) {
-      const [{ records: rows, handled, bad: skipped }, marked] = await Promise.all([records(person), marks(person)])
+      const [{ records: rows, bad: skipped }, marked] = await Promise.all([records(person), marks(person)])
       bad += skipped
-      const byRecord = new Map()
-      for (const status of handled) byRecord.set(status.record, [...(byRecord.get(status.record) ?? []), status])
-      for (const record of rows) out.push({ ...record, read: isRead(marked, record), outcomes: byRecord.get(record.id) ?? [] })
+      for (const record of rows) out.push({ ...record, read: isRead(marked, record) })
     }
     out.sort((a, b) => (a.time === b.time ? 0 : a.time < b.time ? 1 : -1))
     return { items: out, bad }

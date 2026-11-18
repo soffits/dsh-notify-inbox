@@ -1,5 +1,9 @@
 # Decisions
 
+## Two buttons: chat and read (0.13)
+
+A notification's own buttons (done, snooze, steps, events, links) gave a notice ways to act that its source's own view already had, and pressing one changed a second copy of the state (the inbox's handled lines) instead of the thing itself. A notice informs, so each one has **Ask** (talk about it, in a new conversation) and **Mark read / Mark unread**, and nothing else. The press route, the presses log and the handled lines went, and so did the groups they moved items between (an urgent item no longer goes to Handled on a done; it stays urgent until it is read and scrolls away with time). Links in the text stay links. Not chosen: keeping `link` buttons, since the record's `links` already show as links.
+
 ## Notices only: asks are answered where they live (0.12)
 
 The page showed each open ask from `asks.json` as a Needs you item and every notification about it as well, while the list the ask lived in (a Todo on a board) showed it again, so one question reached the person three or four times. A person reads what waits on them in that list, and the list's own views can carry its buttons and a way to answer, so the inbox goes back to what its name says.

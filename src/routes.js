@@ -7,7 +7,6 @@
  *   GET  /api/notify-inbox/items?view=unread&keep=&before=&limit=
  *   GET  /api/notify-inbox/events                    text/event-stream: a notice whenever the caller's inbox changed
  *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
- *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press on a record
  *   GET  /api/notify-inbox/file?id=&name=            a stored attachment
  *   GET  /api/notify-inbox/push/config               { publicKey }
  *   POST /api/notify-inbox/push/state                { endpoint } → { subscribed }
@@ -20,8 +19,7 @@
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { viewerOf } from './access.js'
-import { EMITTING } from './actions.js'
-import { PERSON_PATTERN, RECORD_ID_PATTERN } from './store.js'
+import { PERSON_PATTERN } from './store.js'
 import { buildItems, countItems } from './view.js'
 
 export const PREFIX = '/api/notify-inbox'
@@ -63,7 +61,6 @@ async function body(request) {
  * @param {ReturnType<import('./store.js').createStore>} options.store
  * @param {ReturnType<import('./access.js').createPeople>} options.people
  * @param {ReturnType<import('./push.js').createPush>} options.push
- * @param {ReturnType<import('./actions.js').createActions>} options.actions
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
  * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag, read for each request
@@ -71,7 +68,7 @@ async function body(request) {
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours, quiet = [] }) {
+export function createRoutes({ store, people, push, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours, quiet = [] }) {
   const hushed = new Set(quiet.map(person => String(person).trim().toLowerCase()))
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
@@ -90,17 +87,6 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     } catch (error) {
       return json(error.status ?? 500, { error: error.status ? error.message : 'Something went wrong.' })
     }
-  }
-
-  async function withPresses(who, items) {
-    const byPerson = new Map()
-    for (const person of new Set(items.map(item => item.person))) byPerson.set(person, await actions.presses(person))
-    return items.map(item => {
-      const logged = byPerson.get(item.person)
-      const ids = new Set([item.id, ...item.ids].filter(Boolean))
-      const presses = [...ids].flatMap(id => logged?.get(id) ?? []).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-      return { ...item, presses }
-    })
   }
 
   /** The caller's items, folded and grouped as of now. */
@@ -132,7 +118,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
       items = at < 0 ? [] : items.slice(at + 1)
     }
     const page = items.slice(0, limit)
-    return json(200, { items: await withPresses(who, page), more: items.length > limit })
+    return json(200, { items: page, more: items.length > limit })
   })
 
   /** A notice per change, a comment every 25 s so proxies keep the stream open; ends when the page goes. */
@@ -174,16 +160,6 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     })
   })
 
-  /** The record with this id the caller may see, or undefined. */
-  async function recordOf(who, id) {
-    if (typeof id !== 'string' || !RECORD_ID_PATTERN.test(id)) return undefined
-    for (const person of who.folders) {
-      const record = (await store.records(person)).records.find(row => row.id === id)
-      if (record !== undefined) return record
-    }
-    return undefined
-  }
-
   const read = handle(async (request, who) => {
     const value = await body(request)
     if (value.all === true) {
@@ -197,17 +173,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     return json(200, { ok: true })
   })
 
-  const action = handle(async (request, who) => {
-    const value = await body(request)
-    const record = await recordOf(who, value.record)
-    if (record === undefined) return json(404, { error: 'No such notification.' })
-    const declared = record.actions.find(row => row.id === value.action)
-    if (declared === undefined) return json(400, { error: 'This notification has no such button.' })
-    if (!EMITTING.includes(declared.kind)) return json(400, { error: 'This button acts in the page.' })
-    const result = await actions.press(record.person, record, declared, { until: value.until })
-    await store.setRead(record.person, [record.id], true)
-    return json(200, { press: result.event.press, published: result.published, matched: result.matched ?? 0 })
-  })
+
 
   const file = handle(async (request, who) => {
     const params = new URL(request.url).searchParams
@@ -265,7 +231,6 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     get('/items', list),
     get('/events', events),
     post('/read', read),
-    post('/action', action),
     get('/file', file),
     get('/push/config', pushConfig),
     post('/push/state', pushState),

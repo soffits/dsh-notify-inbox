@@ -1,12 +1,12 @@
 /*
  * Browser half of dsh-notify-inbox: the Inbox entry in the sidebar (with the
- * unread count), its page, turning Web Push on for this browser, and the
- * buttons on each notification.
+ * unread count), its page, turning Web Push on for this browser, and the two
+ * buttons on each notification: chat about it, and read or unread.
  *
  * Plain JavaScript in DSH's Client module format (no build step). The page is
  * built from DSH's own controls (@deepseek-ai/dsh-client-ui-primitives, from
  * the page's module table), the shared pieces DSH doesn't have from
- * @soffits/dsh-ui-kit (ctx.uiKit) and the buttons from @soffits/dsh-ui-actions
+ * @soffits/dsh-ui-kit (ctx.uiKit) and the chat button from @soffits/dsh-ui-actions
  * (ctx.uiActions); the little CSS of its own is in docs/ui.md, with why.
  * Everything the page shows comes from the plugin's /api/notify-inbox routes,
  * which decide per request who is asking. A link with ?notify-inbox=<id>
@@ -29,7 +29,6 @@ window.__ModuleLoader__.load({
     const OWNER = '@soffits/dsh-notify-inbox'
     const LINK_PARAM = 'notify-inbox'
     const STYLE_ID = 'dsh-notify-inbox-style'
-    const PENDING_MS = 2 * 60 * 1000
     const GROUPS = ['urgent', 'live', 'handled', 'info']
     /** The colour an item's tile takes from what it needs, unless its domain names one. */
     const GROUP_TONE = { urgent: 'bad', live: 'accent', handled: 'ok', info: 'muted' }
@@ -92,7 +91,7 @@ window.__ModuleLoader__.load({
 
     // ---- shared state: the counts and a version that bumps when anything changes ----
 
-    const shared = { unread: 0, badge: 'count', version: 0, linked: null, ui: null, kit: null, summary: null, openSession: () => {} }
+    const shared = { unread: 0, badge: 'count', version: 0, linked: null, ui: null, kit: null, summary: null }
     const listeners = new Set()
     const emit = () => { for (const listener of listeners) listener() }
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
@@ -131,38 +130,7 @@ window.__ModuleLoader__.load({
     /** Text a person reads: a string, or a map from language tag to text. */
     const said = (value, t) => (typeof value === 'string' ? value : value?.[t('time.locale').split('-')[0]] ?? Object.values(value ?? {})[0] ?? '')
 
-    // ---- the buttons ----
-
-    /** The server's view of each button's last press: pending, done or unhandled. */
-    const pressesOfButtons = item => {
-      const undone = new Set(item.presses.filter(press => press.action === 'undo').map(press => press.undoes))
-      return item.presses.filter(press => press.action !== 'undo' && !undone.has(press.press))
-    }
-
-    function pressStates(item) {
-      const states = {}
-      for (const press of pressesOfButtons(item)) {
-        const action = item.actions.find(row => row.id === press.id) ?? item.actions.find(row => row.kind === press.action) ?? { id: press.action }
-        const handled = item.outcomes.some(row => row.press === press.press)
-        states[action.id] = handled ? 'done' : Date.now() - Date.parse(press.at) < PENDING_MS ? 'pending' : 'unhandled'
-      }
-      return states
-    }
-
-    /** What happened to the latest press, in words, or null. */
-    function pressStatus(item, t) {
-      const press = pressesOfButtons(item).at(-1)
-      if (press === undefined || press.action === 'step') return null
-      const outcome = item.outcomes.find(row => row.press === press.press)
-      if (outcome !== undefined) {
-        if (outcome.result === 'snoozed' && outcome.until) return t('press.snoozed', { time: absolute(outcome.until, t) })
-        if (outcome.result === 'done') return t('press.done')
-        return outcome.result
-      }
-      return Date.now() - Date.parse(press.at) < PENDING_MS ? t('press.pending') : t('press.unhandled')
-    }
-
-    /** What "Ask" and a step attach to the conversation: the notification as a card. */
+    /** What the chat button attaches to the conversation: the notification as a card. */
     const aboutOf = item => ({
       source: OWNER,
       title: item.title || item.spoken || item.text,
@@ -178,13 +146,9 @@ window.__ModuleLoader__.load({
       const tone = domain.tone ?? GROUP_TONE[group]
       const title = item.title || item.spoken || item.text.slice(0, 80)
       const sub = item.spoken && item.spoken !== title ? item.spoken : item.text !== title ? item.text : ''
-      const doneText = item.handled?.text ?? (item.moved === 'done' ? t('moved.done') : null)
-      const status = item.moved === 'snoozed' ? pressStatus(item, t) : item.moved === 'ended' ? t('moved.ended') : null
+      const doneText = item.handled?.text ?? null
+      const status = item.moved === 'ended' ? t('moved.ended') : null
       const history = !item.liveNow && item.history.length > 0 && item.history.map(row => ({ at: row.time, text: said(row.spoken, t) || said(row.title, t) }))
-      const onPress = async (action, extra) => {
-        await call('action', { record: item.id, action: action.id, ...(extra?.until ? { until: extra.until } : {}) })
-        changed()
-      }
       const className = ['nib-item', item.read ? '' : 'nib-unread', open ? 'nib-open' : '', wash].filter(Boolean).join(' ')
       return h('li', { className, id: `nib-${item.key}`, 'data-group': group },
         h('div', { className: 'nib-line' },
@@ -202,14 +166,10 @@ window.__ModuleLoader__.load({
             item.liveNow && item.live?.progress && h('div', { className: 'nib-progress' },
               h(kit.Progress, { from: item.live.progress.from, to: item.live.progress.to, end: h(kit.TimeUntil, { to: item.live.progress.to }) })),
             history && h(kit.History, { items: history, max: 2 }),
-            open && h(Details, { item, kit, ui, t, onPress, onMark }))))
+            open && h(Details, { item, ui, t, onMark }))))
     }
 
-    function Details({ item, kit, ui, t, onPress, onMark }) {
-      const status = pressStatus(item, t)
-      const actions = item.actions
-      const about = aboutOf(item)
-      const states = pressStates(item)
+    function Details({ item, ui, t, onMark }) {
       return h('div', { className: 'nib-body' },
         item.text && item.text !== item.title && h('div', { className: 'nib-text' }, item.text),
         item.links.length > 0 && h('div', { className: 'nib-links' },
@@ -220,10 +180,8 @@ window.__ModuleLoader__.load({
             ? h('a', { key: file.name, href: api(`file?id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(file.name)}`), target: '_blank', rel: 'noopener' }, file.name)
             : h('span', { key: file.name, className: 'nib-meta' }, `${file.name} (${t('notStored', { reason: file.reason || '?' })})`))),
         h('div', { className: 'nib-actions' },
-          ui !== null && h(ui.ActionBar, { actions, states, about, defaultChat: true, part: 'buttons', onPress }),
-          item.read && h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, false) }, t('markUnread')),
-          status && h('span', { className: 'nib-meta' }, status)),
-        h(kit.Suggested, { actions, about, states, onPress }),
+          ui !== null && h(ui.ActionBar, { actions: [], about: aboutOf(item), defaultChat: true, part: 'buttons' }),
+          h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, !item.read) }, t(item.read ? 'markUnread' : 'markRead'))),
         h('div', { className: 'nib-meta' },
           item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
             item.routed.map((row, i) => h(React.Fragment, { key: row.destination },
@@ -486,7 +444,7 @@ window.__ModuleLoader__.load({
           }, 'notify-inbox: kit')
         })
 
-        // The buttons, when @soffits/dsh-ui-actions is installed; without it the page shows no buttons.
+        // The chat button, when @soffits/dsh-ui-actions is installed; without it only the read toggle shows.
         ctx.inject(['uiActions'], scope => {
           scope.effect(() => {
             shared.ui = scope.uiActions
@@ -509,8 +467,6 @@ window.__ModuleLoader__.load({
           locale: NS,
           label: () => t('panel'),
         }, SidebarIcon))
-
-        shared.openSession = id => ctx.get('uiWorkspace')?.openSession(id)
 
         // The counts: read when the app shows, and again whenever the events stream says the inbox
         // changed (the stream is open while the app is visible; EventSource reconnects by itself).

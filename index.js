@@ -14,7 +14,6 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { createPeople, expandHome } from './src/access.js'
-import { createActions } from './src/actions.js'
 import { createChanges } from './src/changes.js'
 import { TONES, domainMap } from './src/domains.js'
 import { createPush } from './src/push.js'
@@ -29,7 +28,7 @@ const serviceWorker = readFileSync(new URL('./src/sw.js', import.meta.url), 'utf
 
 export const Config = z.object({
   dataDir: z.string().required()
-    .description('The folder the notification router files into: <dataDir>/<person>/inbox.jsonl. Read marks, the action log and push subscriptions are kept in it too. A leading ~/ means the home folder.'),
+    .description('The folder the notification router files into: <dataDir>/<person>/inbox.jsonl. Read marks and push subscriptions are kept in it too. A leading ~/ means the home folder.'),
   people: z.dict(z.string()).default({})
     .description('Verified user id (from the sign-in plugin, such as an OIDC sub) → person id (the inbox folder name). With any mapping configured, each person sees only their own inbox.'),
   peopleFile: z.string().default('')
@@ -77,7 +76,6 @@ export function apply(ctx, config) {
     perPerson: () => people.enabled,
     warn,
   })
-  const actions = createActions({ dataDir, events: () => ctx.get('cronJobs'), warn })
   const localeDir = fileURLToPath(new URL('./locale/', import.meta.url))
   const strings = () => readLocales(localeDir).then(tables)
   // New records are pushed when the inbox file changes; one scan at a time, and one more if a change came meanwhile.
@@ -100,7 +98,7 @@ export function apply(ctx, config) {
   }
   const changes = createChanges({ dataDir, persons: () => store.persons(), warn, onChange: (_person, file) => { if (file === 'inbox.jsonl') scan() } })
   const routes = createRoutes({
-    store, people, push, actions, changes,
+    store, people, push, changes,
     identity: () => ctx.get('requestIdentity'),
     serviceWorker,
     strings,
