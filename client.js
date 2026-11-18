@@ -10,13 +10,19 @@
  * (ctx.uiActions); the little CSS of its own is in docs/ui.md, with why.
  * Everything the page shows comes from the plugin's /api/notify-inbox routes,
  * which decide per request who is asking. A link with ?notify-inbox=<id>
- * opens the page on that notification.
+ * opens the page on that notification. Counts follow the plugin's events
+ * stream (the inbox files' own changes), never a timer.
+ *
+ * An ask (a notification that waits on the person's answer, or an open ask
+ * from their list) shows its points and, when it names the session that
+ * asked, a reply box: the reply goes into that session as the person, through
+ * the UI actions' `start`, with the ask quoted in.
  */
 window.__ModuleLoader__.load({
   id: '@soffits/dsh-notify-inbox',
   factory(require) {
     const React = require('react')
-    const { Button, Pill, Menu, Tooltip, StateDot, IconCheckCircleOutlineRegular, IconEllipsisOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { Button, Pill, Menu, Tooltip, StateDot, IconCheckCircleOutlineRegular, IconEllipsisOutlineRegular, IconSendOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
     const { useState, useEffect, useCallback, useRef, useSyncExternalStore } = React
 
@@ -26,10 +32,10 @@ window.__ModuleLoader__.load({
     const LINK_PARAM = 'notify-inbox'
     const STYLE_ID = 'dsh-notify-inbox-style'
     const PENDING_MS = 2 * 60 * 1000
-    const GROUPS = ['needs-you', 'live', 'handled', 'info']
+    const GROUPS = ['urgent', 'needs-you', 'live', 'handled', 'info']
     /** The colour an item's tile takes from what it needs, unless its domain names one. */
-    const GROUP_TONE = { 'needs-you': 'accent', live: 'accent', handled: 'ok', info: 'muted' }
-    const GROUP_ICON = { 'needs-you': 'circle-alert', live: 'activity', handled: 'circle-check', info: 'info' }
+    const GROUP_TONE = { urgent: 'bad', 'needs-you': 'accent', live: 'accent', handled: 'ok', info: 'muted' }
+    const GROUP_ICON = { urgent: 'triangle-alert', 'needs-you': 'circle-help', live: 'activity', handled: 'circle-check', info: 'info' }
     const api = path => new URL(`api/notify-inbox/${path}`, document.baseURI).href
 
     // Only what DSH's components don't cover: the page frame and row layout mirror DSH's own pages
@@ -48,6 +54,7 @@ window.__ModuleLoader__.load({
 .nib-counts>*+*::before{content:'·';padding:0 6px}
 .nib-counts b{font-weight:500;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .nib-counts b[data-group=needs-you]{color:var(--dsw-alias-state-business-primary)}
+.nib-counts b[data-group=urgent]{color:var(--dsw-alias-state-error-primary)}
 .nib-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
 .nib-n{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
 .nib-group{display:flex;flex-direction:column;gap:4px;margin-bottom:24px}
@@ -63,7 +70,11 @@ window.__ModuleLoader__.load({
 .nib-titleLine{display:flex;align-items:flex-start;gap:8px;min-width:0;padding-top:4px}
 .nib-titleLine>.uk-newDot{margin-top:8px}
 .nib-title{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:23px;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
-.nib-unread .nib-title,.nib-group[data-group=needs-you] .nib-title,.nib-group[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
+.nib-unread .nib-title,.nib-group[data-group=urgent] .nib-title,.nib-group[data-group=needs-you] .nib-title,.nib-group[data-group=live] .nib-title{font-weight:500;color:var(--dsw-alias-label-primary)}
+.nib-points{flex:none;align-self:center;padding:0 6px;border-radius:9px;font-size:12px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
+.nib-reply{display:flex;flex-direction:column;gap:6px;max-width:640px}
+.nib-reply textarea{box-sizing:border-box;width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--dsw-alias-border-primary,var(--dsw-alias-label-quaternary));border-radius:10px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;resize:vertical}
+.nib-replyBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .nib-open .nib-title{-webkit-line-clamp:unset}
 .nib-when{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:23px;color:var(--dsw-alias-label-caption)}
 .nib-sub{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:21px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
@@ -89,7 +100,7 @@ window.__ModuleLoader__.load({
 
     // ---- shared state: the counts and a version that bumps when anything changes ----
 
-    const shared = { unread: 0, version: 0, pollSeconds: 30, linked: null, ui: null, kit: null, summary: null }
+    const shared = { unread: 0, version: 0, linked: null, ui: null, kit: null, summary: null, openSession: () => {} }
     const listeners = new Set()
     const emit = () => { for (const listener of listeners) listener() }
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
@@ -109,7 +120,6 @@ window.__ModuleLoader__.load({
     async function refreshSummary() {
       try {
         const summary = await call('summary')
-        shared.pollSeconds = summary.pollSeconds || 30
         const key = JSON.stringify([summary.unread, summary.latest, summary.total, summary.groups, summary.line])
         if (key !== lastSummary) {
           lastSummary = key
@@ -119,7 +129,7 @@ window.__ModuleLoader__.load({
           emit()
         }
       } catch {
-        // Signed out or DSH restarting; try again at the next tick.
+        // Signed out or DSH restarting; the stream's next notice (or the page coming back) tries again.
       }
     }
     const changed = () => { lastSummary = ''; refreshSummary() }
@@ -159,18 +169,52 @@ window.__ModuleLoader__.load({
       source: OWNER,
       title: item.title || item.spoken || item.text,
       lines: [item.title && item.spoken !== item.title ? item.spoken : '', ...(item.text || '').split('\n'), ...item.links].filter(line => line && line !== item.title),
-      context: { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined, thread: item.thread || undefined },
+      context: { notification: item.id, time: item.time, lane: item.lane, domain: item.domain || undefined, thread: item.thread || undefined, ask: item.ask?.id },
     })
+
+    /** A reply to an ask, sent into the session that asked as the person, with the ask quoted in. */
+    function Reply({ item, ui, t, onSent }) {
+      const [text, setText] = useState('')
+      const [state, setState] = useState({ phase: 'idle' })
+      const send = async () => {
+        const words = text.trim()
+        if (words === '' || state.phase === 'sending') return
+        setState({ phase: 'sending' })
+        try {
+          const session = await ui.start(aboutOf(item), { instruction: words, session: item.session })
+          setText('')
+          setState({ phase: 'sent', session })
+          onSent()
+        } catch (reason) {
+          setState({ phase: 'failed', message: reason.message })
+        }
+      }
+      return h('div', { className: 'nib-reply' },
+        h('textarea', {
+          value: text,
+          rows: 2,
+          placeholder: t('reply.placeholder'),
+          'aria-label': t('reply.label'),
+          onChange: event => setText(event.target.value),
+          onKeyDown: event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) send() },
+        }),
+        h('div', { className: 'nib-replyBar' },
+          h(Button, { variant: 'outline', size: 'sm', disabled: text.trim() === '' || state.phase === 'sending', onClick: send },
+            h(IconSendOutlineRegular, null), ' ', t(state.phase === 'sending' ? 'reply.sending' : 'reply.send')),
+          state.phase === 'sent' && h('span', { className: 'nib-meta' }, t('reply.sent'), ' ',
+            h(Button, { variant: 'outline', size: 'sm', onClick: () => shared.openSession(state.session) }, t('reply.open'))),
+          state.phase === 'failed' && h('span', { className: 'nib-meta nib-bad', role: 'alert' }, t('reply.failed', { message: state.message }))))
+    }
 
     // ---- one item ----
 
     function Item({ item, group, kit, ui, t, domains, open, onToggle, onMark }) {
       const wash = kit.useWash(item.id, item.key)
       const domain = domains[item.domain] ?? {}
-      const tone = domain.tone ?? (group === 'needs-you' && item.lane === 'interrupt' ? 'bad' : GROUP_TONE[group])
+      const tone = domain.tone ?? GROUP_TONE[group]
       const title = item.title || item.spoken || item.text.slice(0, 80)
       const sub = item.spoken && item.spoken !== title ? item.spoken : item.text !== title ? item.text : ''
-      const doneText = item.handled?.text ?? (item.moved === 'done' ? t('moved.done') : null)
+      const doneText = item.handled?.text ?? (item.moved === 'done' ? t('moved.done') : item.moved === 'closed' ? t('moved.closed') : null)
       const status = item.moved === 'snoozed' ? pressStatus(item, t) : item.moved === 'ended' ? t('moved.ended') : null
       const history = !item.liveNow && item.history.length > 0 && item.history.map(row => ({ at: row.time, text: said(row.spoken, t) || said(row.title, t) }))
       const onPress = async (action, extra) => {
@@ -186,6 +230,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'nib-titleLine' },
                 !item.read && h(kit.NewDot),
                 h('span', { className: 'nib-title' }, title),
+                group === 'needs-you' && item.ask?.points && h('span', { className: 'nib-points' }, t('points', { n: item.ask.points })),
                 h('span', { className: 'nib-when' },
                   item.liveNow && h(StateDot, { state: 'done' }),
                   h(kit.TimeAgo, { at: item.time }))),
@@ -214,6 +259,7 @@ window.__ModuleLoader__.load({
           ui !== null && h(ui.ActionBar, { actions: item.actions, states, about, defaultChat: true, part: 'buttons', onPress }),
           item.read && h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, false) }, t('markUnread')),
           status && h('span', { className: 'nib-meta' }, status)),
+        item.group === 'needs-you' && item.session && ui?.start && h(Reply, { item, ui, t, onSent: () => { if (!item.read) onMark(item, true) } }),
         h(kit.Suggested, { actions: item.actions, about, states, onPress }),
         h('div', { className: 'nib-meta' },
           item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
@@ -517,19 +563,25 @@ window.__ModuleLoader__.load({
           label: () => t('panel'),
         }, SidebarIcon))
 
-        // The counts: checked while the page is visible, right away when it becomes visible, and at
-        // once when the events stream says something changed.
+        shared.openSession = id => ctx.get('uiWorkspace')?.openSession(id)
+
+        // The counts: read when the app shows, and again whenever the events stream says the inbox
+        // changed (the stream is open while the app is visible; EventSource reconnects by itself).
         ctx.effect(() => {
-          let timer
-          const tick = () => {
-            clearTimeout(timer)
-            if (document.visibilityState === 'visible') refreshSummary()
-            timer = setTimeout(tick, shared.pollSeconds * 1000)
+          let source = null
+          const open = () => {
+            if (source !== null || typeof EventSource !== 'function') return
+            source = new EventSource(api('events'), { withCredentials: true })
+            source.onmessage = changed
+            source.onopen = changed
           }
-          const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+          const close = () => { source?.close(); source = null }
+          const onVisible = () => {
+            if (document.visibilityState === 'visible') { open(); refreshSummary() } else close()
+          }
           document.addEventListener('visibilitychange', onVisible)
-          tick()
-          return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
+          onVisible()
+          return () => { close(); document.removeEventListener('visibilitychange', onVisible) }
         }, 'notify-inbox: counts')
 
         // ?notify-inbox=<id> (a tapped push, a shared link) opens the page on that notification.

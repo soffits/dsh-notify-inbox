@@ -45,6 +45,16 @@
     "more": "更多",
     "push.off": "已关闭",
     "push.unavailable": "这里不可用",
-    "kitMissing": "这个页面需要 @soffits/dsh-ui-kit 插件。"
+    "kitMissing": "这个页面需要 @soffits/dsh-ui-kit 插件。",
+    "group.urgent": "紧急",
+    "points": "+{n} 分",
+    "reply.label": "回复",
+    "reply.placeholder": "回复会发到提问的那个对话里",
+    "reply.send": "发送",
+    "reply.sending": "正在发送…",
+    "reply.sent": "已经发到那个对话里了。",
+    "reply.open": "打开对话",
+    "reply.failed": "没发出去：{message}",
+    "moved.closed": "已经处理好了。"
   }
 }

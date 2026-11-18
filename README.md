@@ -2,7 +2,7 @@
 
 A notification inbox for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). Something outside DSH (a notification router, a cron script, a watcher) files notifications as JSON lines, one folder per person. The plugin shows each signed-in person their own inbox in the Web UI, keeps read and unread per person on the server, pushes new ones to the browsers and installed home-screen apps they turned notifications on for, and gives every notification buttons: ask the agent about it, mark it done, remind me later.
 
-The page sorts notifications by what they ask of you: **Needs you**, **Live** (a flight's status, a running job, updated in place), **Handled** (what was done for you, in one quiet line) and **To know**. Notifications about one thing fold into one item with its history underneath, new ones appear while the page is open, and an optional line at the top says what matters now. It is built from DSH's own components, so it looks like the rest of the Web UI in light and dark ([docs/ui.md](docs/ui.md) says which few pieces aren't DSH's, and why).
+The page sorts notifications by what they ask of you: **Urgent** (a leak, a door left open: on top until you deal with it), **Needs you** (what waits on your answer, which you can reply to right there), **Live** (a flight's status, a running job, updated in place), **Handled** (what was done for you, in one quiet line) and **To know**. Notifications about one thing fold into one item with its history underneath, new ones appear while the page is open, and an optional line at the top says what matters now. It is built from DSH's own components, so it looks like the rest of the Web UI in light and dark ([docs/ui.md](docs/ui.md) says which few pieces aren't DSH's, and why).
 
 The contract is files, so nothing gets lost while DSH restarts: the writer keeps appending, and the plugin pushes whatever arrived once it's back.
 
@@ -41,7 +41,6 @@ Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a pro
 | `vapidSubject` | `mailto:admin@example.invalid` | A contact push services can reach. Set your own. |
 | `domains` | `{}` | How each `domain` is drawn, on top of the built-in defaults (`mail`, `money`, `health`, `travel`, `home`, `orders`...): `{ "legal": { "icon": "scale", "tone": "violet" } }`. `icon` is a [Lucide](https://lucide.dev) name the kit bundles; `tone` (`ok`, `warn`, `bad`, `accent`, `violet`, `muted`) is usually left out, since an item's colour says what it needs. |
 | `summaryHours` | `12` | How long the summary line is shown after it was written. |
-| `pollSeconds` | `5` | How often new lines are looked for (to push them). |
 
 **Who sees what.** With a mapping, every request is checked on the server: a person sees, marks and presses only their own inbox, and a request without a verified identity sees nothing. The identity comes from any plugin that provides a `requestIdentity` service (`current()` → `{ provider, issuer, id, name } | null`), such as [dsh-oidc](https://github.com/soffits/dsh-oidc) 0.3.0-alpha.9 or later. Without a mapping (a DSH only you use), you see every folder.
 
@@ -61,18 +60,37 @@ Append one JSON object per line to `<dataDir>/<person>/inbox.jsonl` (person ids 
             {"destination": "phone", "type": "ntfy", "ok": false, "detail": "timed out"}]}
 ```
 
-- `id` (required, unique), `time` (required, ISO 8601). `lane: "interrupt"` makes it urgent (it needs you, a red tile, high push urgency).
+- `id` (required, unique), `time` (required, ISO 8601). `lane: "interrupt"` makes it urgent (on top, a red tile, high push urgency).
 - `title`, `spoken` (one short line: the push body), `text` (the full text), `links` (http/https).
 - `files`: attachments the writer copied to `<dataDir>/<person>/files/<id>/<name>`; only those are served, and only to that person.
 - `push: false` files it without a push. `test: true` labels it as a test.
 - `routed`: where else the notification went and whether that worked; shown under the text.
 - `actions`: buttons, see below.
-- `attention`: the group, `needs-you`, `live`, `handled` or `info` ("To know"). Left out, it follows from the rest: `handled` when `handled` is set, `live` when `live` is, `needs-you` for an interrupt or a notification with `done` or `snooze` buttons, else `info`. A needs-you item the person marked done moves to Handled, a snoozed one waits under To know until it comes back.
+- `attention`: the group, `urgent`, `needs-you`, `live`, `handled` or `info` ("To know"). Left out, it follows from the rest: `handled` when `handled` is set, `live` when `live` is, `urgent` for an interrupt, else `info`. An urgent item the person marked done moves to Handled, a snoozed one waits under To know until it comes back. `needs-you` is for asks (below).
+- `session`: the session that asked, for a notification that waits on the person's answer; the item then has a reply box (below).
 - `thread`: notifications with the same thread are one item, the newest on top and the older ones as its history (three reminders about one task).
 - `live`: `{ "until"?, "progress"?: { "from", "to" } }`. The thread's newest notification replaces the item in place, shown as live until `until` (or six hours after its last update), with a bar from `from` to `to`.
 - `handled`: `{ "text", "at"? }`, what was done for the person, shown as one quiet line with a check.
 
 An optional `<dataDir>/<person>/summary.json`, `{ "text": "...", "at": "<ISO time>" }`, is the sentence shown above the items for `summaryHours`.
+
+## Asks
+
+What waits on the person's answer (a decision, a pick, a small step for someone else's work) usually lives in a list of their own, such as a Todo. Whatever keeps that list writes the open ones to `<dataDir>/<person>/asks.json` each time it changes; with that file there, it alone says what shows under **Needs you**:
+
+```json
+{"v": 1, "asks": [
+ {"id": "todo:1a2b3c4d", "title": "Pick the lamp", "text": "White or oak? The white one is 39.", "time": "2026-11-17T15:50:12Z",
+  "next": "2026-11-18", "due": "2026-11-20", "points": 3, "session": "<session id>", "domain": "todo",
+  "actions": [{"kind": "done", "id": "done", "payload": {"source": "todo", "uuid": "1a2b..."}, "inverse": {"kind": "reopen", "payload": {}}},
+              {"kind": "snooze", "id": "snooze", "payload": {"source": "todo", "uuid": "1a2b..."}}]}]}
+```
+
+- Each open ask is one item, whether or not a notification was ever filed about it. Notifications whose `thread` is the ask's `id` fold into it, and the ask's own buttons, title and `session` win. When the ask leaves the file it was settled where it lives: its notifications show as Handled ("Settled").
+- `points` (shown as a small "+3" beside the title) is what dealing with it earns where the list keeps such a game; leave it out otherwise. `next` and `due` are days.
+- With a `session`, the opened item has a reply box. The reply goes into that session as the person (through `@soffits/dsh-ui-actions`' `start`, DSH's own session prompt), with the ask quoted in, so the conversation that asked carries on with the answer; the page offers to open it.
+- A press on an ask's buttons is an action event like any other (`source.record` is the ask's id), for whatever keeps the list to act on.
+- Without `asks.json` nothing changes: notifications keep the group they were filed with.
 
 A line `{"v": 1, "type": "handled", "record": "<id>", "press": "<press id>", "action": "done", "result": "done", "time": "..."}` tells the inbox that a press on that record was dealt with (`result: "snoozed"` with `until` shows when it comes back). Bad lines are skipped and counted.
 
@@ -104,7 +122,7 @@ Tapping a notification opens the inbox on it. A device whose subscription expire
 
 ## Live updates
 
-An open page follows `GET /api/notify-inbox/events`, a Server-Sent Events stream that says when the caller's inbox changed (records, read marks, presses or the summary), and fetches again; it polls while the stream is down. While anyone listens the plugin looks at those files every two seconds; nothing runs otherwise.
+An open Web UI follows `GET /api/notify-inbox/events`, a Server-Sent Events stream that says when the caller's inbox changed (records, read marks, presses, the summary or the asks), and fetches again; the browser reconnects by itself when the stream drops. The plugin watches the data folder and each person's folder (`fs.watch`), so a change is noticed when the file changes, and new records are pushed the same moment; nothing polls. The data folder must be on a local file system for that (a network share may not report changes).
 
 ## Languages
 

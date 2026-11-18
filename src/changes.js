@@ -1,53 +1,83 @@
 /**
- * Change notices for open pages. While anyone listens, the files that make up
- * a person's inbox (records, read marks, presses, the summary line) are
- * looked at every `intervalMs`; when one changed, every listener allowed to
- * see that person hears a short notice and the page fetches again. A stat
- * per file is cheap and, unlike fs.watch, behaves the same on every file
- * system and through a replaced file. Nothing runs while nobody listens.
+ * Change notices. The data folder and each person's folder are watched
+ * (`fs.watch` on the directories, so a file replaced by a rename is seen as
+ * well as one appended to); when one of the files that make up a person's
+ * inbox (records, read marks, presses, the summary line, the asks) changes,
+ * every listener allowed to see that person hears a short notice and the page
+ * fetches again, and `onChange` runs (push looks for new records). No timer:
+ * the files' own changes are the signal. A folder that appears later is
+ * picked up when the data folder reports it.
  */
-import { stat } from 'node:fs/promises'
+import { watch } from 'node:fs'
 import { join } from 'node:path'
 
-const FILES = ['inbox.jsonl', 'read.json', 'actions.jsonl', 'summary.json']
+export const FILES = ['inbox.jsonl', 'read.json', 'actions.jsonl', 'summary.json', 'asks.json']
+const SETTLE_MS = 50
 
 /**
  * @param {object} options
  * @param {string} options.dataDir
  * @param {() => Promise<string[]>} options.persons - every inbox folder there is
- * @param {number} [options.intervalMs]
+ * @param {(person: string, file: string) => void} [options.onChange] - also called for each change
+ * @param {(message: string) => void} [options.warn]
  */
-export function createChanges({ dataDir, persons, intervalMs = 2000 }) {
+export function createChanges({ dataDir, persons, onChange = () => {}, warn = () => {} }) {
   const listeners = new Set()
-  const seen = new Map()       // person -> signature
-  let running = false
-  let timer
+  const watchers = new Map()      // folder name ('' for the data folder) -> FSWatcher
+  const pending = new Map()       // person -> { timer, files }
+  let stopped = false
 
-  async function signature(person) {
-    const parts = await Promise.all(FILES.map(name => stat(join(dataDir, person, name)).then(
-      info => `${info.ino}:${info.size}:${info.mtimeMs}`,
-      () => '-')))
-    return parts.join('|')
+  function notify(person, file) {
+    const due = pending.get(person) ?? { timer: undefined, files: new Set() }
+    due.files.add(file)
+    clearTimeout(due.timer)
+    // Several writes in one go (an append and its status line, a rename) become one notice.
+    due.timer = setTimeout(() => {
+      pending.delete(person)
+      for (const listener of listeners) if (listener.folders === null || listener.folders.includes(person)) listener.send(person)
+      for (const name of due.files) onChange(person, name)
+    }, SETTLE_MS)
+    pending.set(person, due)
   }
 
-  /** One look at every folder; the loop goes on while anyone listens and ends by itself after. */
-  async function tick() {
+  function watchFolder(person) {
+    if (stopped || watchers.has(person)) return
     try {
-      for (const person of await persons()) {
-        const now = await signature(person)
-        const before = seen.get(person)
-        seen.set(person, now)
-        if (before === undefined || before === now) continue
-        for (const listener of listeners) if (listener.folders === null || listener.folders.includes(person)) listener.send(person)
-      }
-    } finally {
-      if (listeners.size > 0) {
-        timer = setTimeout(tick, intervalMs)
-      } else {
-        running = false
-        seen.clear()
+      const watcher = watch(join(dataDir, person), (_event, name) => {
+        const file = name === null ? null : String(name)
+        if (file === null || FILES.includes(file)) notify(person, file ?? 'inbox.jsonl')
+      })
+      watcher.on('error', error => {
+        warn(`stopped watching ${person}: ${error.message}`)
+        watcher.close()
+        watchers.delete(person)
+      })
+      watchers.set(person, watcher)
+    } catch (error) {
+      if (error.code !== 'ENOENT') warn(`cannot watch ${person}: ${error.message}`)
+    }
+  }
+
+  async function sync() {
+    for (const person of await persons()) {
+      if (!watchers.has(person)) {
+        watchFolder(person)
+        notify(person, 'inbox.jsonl')
       }
     }
+  }
+
+  /** Start watching: the data folder for new people, and every person's folder. */
+  async function start() {
+    if (stopped || watchers.has('')) return
+    try {
+      const top = watch(dataDir, () => { sync().catch(error => warn(`inbox folders not read: ${error.message}`)) })
+      top.on('error', error => warn(`stopped watching the inbox folder: ${error.message}`))
+      watchers.set('', top)
+    } catch (error) {
+      warn(`cannot watch ${dataDir}: ${error.message}`)
+    }
+    for (const person of await persons()) watchFolder(person)
   }
 
   /**
@@ -57,19 +87,18 @@ export function createChanges({ dataDir, persons, intervalMs = 2000 }) {
   function listen(folders, send) {
     const listener = { folders, send }
     listeners.add(listener)
-    if (!running) {
-      running = true
-      timer = setTimeout(tick, 0)
-    }
     return () => listeners.delete(listener)
   }
 
   /** Stop at once (the plugin is going away). */
   function stop() {
+    stopped = true
     listeners.clear()
-    clearTimeout(timer)
-    running = false
+    for (const watcher of watchers.values()) watcher.close()
+    watchers.clear()
+    for (const { timer } of pending.values()) clearTimeout(timer)
+    pending.clear()
   }
 
-  return { listen, stop, tick }
+  return { start, listen, stop }
 }

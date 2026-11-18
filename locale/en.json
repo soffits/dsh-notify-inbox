@@ -45,6 +45,16 @@
     "more": "More",
     "push.off": "off",
     "push.unavailable": "not available here",
-    "kitMissing": "This page needs the @soffits/dsh-ui-kit plugin."
+    "kitMissing": "This page needs the @soffits/dsh-ui-kit plugin.",
+    "group.urgent": "Urgent",
+    "points": "+{n} pts",
+    "reply.label": "Reply",
+    "reply.placeholder": "Your answer goes to the conversation that asked",
+    "reply.send": "Send",
+    "reply.sending": "Sending…",
+    "reply.sent": "Sent to the conversation.",
+    "reply.open": "Open it",
+    "reply.failed": "Couldn’t send: {message}",
+    "moved.closed": "Settled."
   }
 }

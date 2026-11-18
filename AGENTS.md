@@ -4,10 +4,10 @@ A DeepSeek Harness (DSH) plugin: a per-person notification inbox read from JSON-
 
 ## Layout
 
-- `index.js`: Host plugin (`notify-inbox` row): config schema, wiring, the push scan loop.
+- `index.js`: Host plugin (`notify-inbox` row): config schema, wiring, pushing new records when the inbox file changes.
 - `src/routes.js`: the `/api/notify-inbox/*` exact Fetch routes. Every answer is decided per request from `requestIdentity` and the person mapping (`src/access.js`, shared in shape with dsh-card-board).
-- `src/store.js`: reading `inbox.jsonl` incrementally (records and `type: handled` status lines), read marks, the summary line.
-- `src/view.js`: records → items (threads folded, the group each shows in now, counts); `src/changes.js`: change notices for the events stream; `src/domains.js`: the domain → icon map.
+- `src/store.js`: reading `inbox.jsonl` incrementally (records and `type: handled` status lines), read marks, the summary line, the asks (`asks.json`, read fresh each time).
+- `src/view.js`: records and asks → items (threads folded, asks deciding Needs you, the group each shows in now, counts); `src/changes.js`: `fs.watch` on the folders, change notices for the events stream and the push; `src/domains.js`: the domain → icon map.
 - `src/push.js`: subscriptions, cursor, pushing new records; `src/webpush.js`: RFC 8291 encryption and RFC 8292 VAPID on node:crypto; `src/sw.js`: the service worker (served as is).
 - `src/actions.js`: presses on buttons → action events (log + `cronJobs` service when present).
 - `client.js`: Web UI half in DSH's Client module format: sidebar entry with unread badge, the page, push control. The buttons come from `@soffits/dsh-ui-actions` (`ctx.uiActions`, injected when installed): the page passes each notification as `about` and its own press call; the package owns the buttons' words and the chat card. It is built from DSH's primitives and `ctx.uiKit` first; the little CSS of its own is listed with reasons in `docs/ui.md` (keep that list true).
