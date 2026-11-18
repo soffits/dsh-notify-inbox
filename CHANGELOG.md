@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- The reply box has a visible border (it used a colour token DSH doesn't define).
+
 ## 0.6.0
 
 - Asks: whatever keeps the person's list of open asks (a Todo) writes them to `<person>/asks.json`, and with that file there it alone decides **Needs you**. Each open ask is one item, with the notifications of its thread folded in; one that left the file shows as Handled ("Settled"). An ask's `points` show beside its title, and its own buttons, title and session win over its notifications'.
