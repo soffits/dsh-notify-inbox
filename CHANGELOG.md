@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+- A link to an item from another page of the app (`/?notify-inbox=<id>`, pushed in place) opens it; before, only a page load or a push did.
+- `@deepseek-ai/schemastery` is a peer dependency, so an update never moves a private copy out from under the plugin.
+
 ## 0.8.0
 
 - A reply never dead-ends: when the ask names no session, or the one it names is gone, archived, can't be loaded or was a finished helper, it opens a new top-level session with the whole ask quoted in and the session that asked named, so someone can act on it. New options `replyCwd` and `replyPreset` say where that session starts. Every ask has a reply box now, not only those that name a session.
