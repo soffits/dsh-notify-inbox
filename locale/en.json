@@ -53,6 +53,7 @@
     "reply.send": "Send",
     "reply.sending": "Sending…",
     "reply.sent": "Sent to the conversation.",
+    "reply.sentNew": "Sent to a new conversation: the one that asked is no longer open.",
     "reply.open": "Open it",
     "reply.failed": "Couldn’t send: {message}",
     "moved.closed": "Settled."

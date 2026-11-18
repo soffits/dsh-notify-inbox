@@ -14,9 +14,9 @@
  * stream (the inbox files' own changes), never a timer.
  *
  * An ask (a notification that waits on the person's answer, or an open ask
- * from their list) shows its points and, when it names the session that
- * asked, a reply box: the server puts the reply into that session as the
- * person, with the ask quoted in.
+ * from their list) shows its points and a reply box: the server puts the
+ * reply into the session that asked as the person, with the ask quoted in,
+ * or into a new session when that one is gone or the ask names none.
  */
 window.__ModuleLoader__.load({
   id: '@soffits/dsh-notify-inbox',
@@ -183,7 +183,7 @@ window.__ModuleLoader__.load({
         try {
           const sent = await call('reply', { record: item.id, text: words })
           setText('')
-          setState({ phase: 'sent', session: sent.session })
+          setState({ phase: 'sent', session: sent.session, fresh: sent.fresh === true })
           onSent()
         } catch (reason) {
           setState({ phase: 'failed', message: reason.message })
@@ -201,7 +201,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'nib-replyBar' },
           h(Button, { variant: 'outline', size: 'sm', disabled: text.trim() === '' || state.phase === 'sending', onClick: send },
             h(IconSendOutlineRegular, null), ' ', t(state.phase === 'sending' ? 'reply.sending' : 'reply.send')),
-          state.phase === 'sent' && h('span', { className: 'nib-meta' }, t('reply.sent'), ' ',
+          state.phase === 'sent' && h('span', { className: 'nib-meta' }, t(state.fresh ? 'reply.sentNew' : 'reply.sent'), ' ',
             h(Button, { variant: 'outline', size: 'sm', onClick: () => shared.openSession(state.session) }, t('reply.open'))),
           state.phase === 'failed' && h('span', { className: 'nib-meta nib-bad', role: 'alert' }, t('reply.failed', { message: state.message }))))
     }
@@ -259,7 +259,7 @@ window.__ModuleLoader__.load({
           ui !== null && h(ui.ActionBar, { actions: item.actions, states, about, defaultChat: true, part: 'buttons', onPress }),
           item.read && h(Button, { variant: 'outline', size: 'sm', onClick: () => onMark(item, false) }, t('markUnread')),
           status && h('span', { className: 'nib-meta' }, status)),
-        item.group === 'needs-you' && item.session && h(Reply, { item, t, onSent: () => { if (!item.read) onMark(item, true) } }),
+        item.group === 'needs-you' && (item.session || item.ask) && h(Reply, { item, t, onSent: () => { if (!item.read) onMark(item, true) } }),
         h(kit.Suggested, { actions: item.actions, about, states, onPress }),
         h('div', { className: 'nib-meta' },
           item.routed.length === 0 ? t('notSent') : h(React.Fragment, null, `${t('alsoSent')}: `,
