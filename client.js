@@ -601,14 +601,19 @@ window.__ModuleLoader__.load({
           }, 100)
         }
         ctx.effect(() => {
-          const params = new URLSearchParams(location.search)
-          if (params.has(LINK_PARAM)) {
+          // A link to an item opens it, at page load and when another page of the app links here in place
+          // (it pushes the URL and fires popstate, as DSH's own links do).
+          const followLink = () => {
+            const params = new URLSearchParams(location.search)
+            if (!params.has(LINK_PARAM)) return
             const id = params.get(LINK_PARAM)
             params.delete(LINK_PARAM)
             const query = params.toString()
             history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`)
             openLinked(id)
           }
+          followLink()
+          window.addEventListener('popstate', followLink)
           const onMessage = event => {
             if (event.data?.type !== 'notify-inbox/open') return
             try {
@@ -619,7 +624,10 @@ window.__ModuleLoader__.load({
           }
           navigator.serviceWorker?.addEventListener('message', onMessage)
           navigator.serviceWorker?.startMessages?.()
-          return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
+          return () => {
+            window.removeEventListener('popstate', followLink)
+            navigator.serviceWorker?.removeEventListener('message', onMessage)
+          }
         }, 'notify-inbox: links')
       },
     }

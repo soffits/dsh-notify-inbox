@@ -95,6 +95,7 @@ What waits on the person's answer (a decision, a pick, a small step for someone 
 - An ask that is a question lists its `options`; the writer gives each its own button (a `done` whose payload carries the answer), so a press answers it. One that is a task has a plain done.
 - A press on an ask's buttons is an action event like any other (`source.record` is the ask's id), for whatever keeps the list to act on.
 - Without `asks.json` nothing changes: notifications keep the group they were filed with.
+- `/?notify-inbox=<id>` opens the inbox on one item, an ask (`todo:1a2b...`) or a notification: from a push, on a page load, or from a link on another page of the app that moves there in place (a card's row, for example).
 
 A line `{"v": 1, "type": "handled", "record": "<id>", "press": "<press id>", "action": "done", "result": "done", "time": "..."}` tells the inbox that a press on that record was dealt with (`result: "snoozed"` with `until` shows when it comes back). Bad lines are skipped and counted.
 
