@@ -21,6 +21,7 @@ import { createPush } from './src/push.js'
 import { createRoutes } from './src/routes.js'
 import { createStore } from './src/store.js'
 import { readLocales, tables } from './src/locales.js'
+import { send as sendReply } from './src/reply.js'
 
 export const name = 'dsh-notify-inbox'
 export const inject = ['connection']
@@ -76,7 +77,31 @@ export function apply(ctx, config) {
     warn,
   })
   const actions = createActions({ dataDir, events: () => ctx.get('cronJobs'), warn })
-  const strings = readLocales(fileURLToPath(new URL('./locale/', import.meta.url))).then(tables)
+  const localeDir = fileURLToPath(new URL('./locale/', import.meta.url))
+  const strings = () => readLocales(localeDir).then(tables)
+  // Replies reach sessions through DSH's own services, looked up when one is sent.
+  const replyDeps = () => {
+    const agents = ctx.get('agents')
+    const controller = ctx.get('sessionController')
+    const query = ctx.get('sessionQuery')
+    if (agents === undefined || controller === undefined || query === undefined) return undefined
+    return {
+      liveAgent: id => agents.get(id),
+      resolveAgent: async id => {
+        const found = await controller.resolveAgent(id)
+        if ('error' in found) throw Object.assign(new Error('The conversation that asked could not be opened.'), { status: 404 })
+        return found.agent
+      },
+      readHeader: async id => (await query.readSession(id))?.session,
+      flush: session => ctx.get('sessions')?.flush?.(session) ?? Promise.resolve(true),
+      detached: fn => (agents.withoutInitiator ? agents.withoutInitiator(fn) : fn()),
+    }
+  }
+  const reply = async request => {
+    const deps = replyDeps()
+    if (deps === undefined) throw Object.assign(new Error('Replies need a DSH that lets plugins reach its sessions.'), { status: 503 })
+    return sendReply(deps, request)
+  }
   // New records are pushed when the inbox file changes; one scan at a time, and one more if a change came meanwhile.
   let scanning = null
   let again = false
@@ -100,7 +125,8 @@ export function apply(ctx, config) {
     store, people, push, actions, changes,
     identity: () => ctx.get('requestIdentity'),
     serviceWorker,
-    strings: () => strings,
+    strings,
+    reply,
     domains: domainMap(config.domains ?? {}),
     summaryHours: config.summaryHours ?? 12,
   })

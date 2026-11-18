@@ -6,6 +6,7 @@
  *   GET  /api/notify-inbox/summary                   counts per group, unread, the summary line, the domain map
  *   GET  /api/notify-inbox/items?view=needs-you&keep=&before=&limit=
  *   GET  /api/notify-inbox/events                    text/event-stream: a notice whenever the caller's inbox changed
+ *   POST /api/notify-inbox/reply                     { record, text }  a reply to an ask, put into the session that asked
  *   POST /api/notify-inbox/read                      { ids: [...], read?: false } or { all: true }
  *   POST /api/notify-inbox/action                    { record, action, until? }  a done/snooze/event press (record: a
  *                                                    record id or an ask's id; an ask's own buttons win in its thread)
@@ -67,12 +68,13 @@ async function body(request) {
  * @param {ReturnType<import('./actions.js').createActions>} options.actions
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
- * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag
+ * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag, read for each request
+ * @param {(request: { session: string, words: string, item: object, identity: object | undefined }) => Promise<object>} [options.reply] - puts a reply into a session (src/reply.js)
  * @param {ReturnType<import('./changes.js').createChanges>} options.changes
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
  */
-export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours }) {
+export function createRoutes({ store, people, push, actions, identity, serviceWorker, strings = async () => ({}), reply, changes, domains, summaryHours }) {
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
     const viewer = await viewerOf(people, identity())
@@ -178,7 +180,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
       const { asks } = await store.asks(person)
       const record = (await store.records(person)).records.find(row => row.id === id)
       const ask = asks.find(row => row.id === id || row.id === record?.thread)
-      if (record !== undefined) return ask === undefined ? record : { ...record, actions: [...record.actions.filter(a => a.kind !== 'done' && a.kind !== 'snooze'), ...ask.actions] }
+      if (record !== undefined) return ask === undefined ? record : { ...record, session: ask.session ?? record.session, actions: [...record.actions.filter(a => a.kind !== 'done' && a.kind !== 'snooze'), ...ask.actions] }
       if (ask !== undefined) return { ...ask, key: '', thread: ask.id }
     }
     return undefined
@@ -207,6 +209,24 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     const result = await actions.press(record.person, record, declared, { until: value.until })
     await store.setRead(record.person, [record.id], true)
     return json(200, { press: result.event.press, published: result.published, matched: result.matched ?? 0 })
+  })
+
+  /** A reply to an ask the caller sees, into the session the ask names (its own, else its notification's). */
+  const answer = handle(async (request, who) => {
+    const value = await body(request)
+    const record = await recordOf(who, value.record)
+    if (record === undefined) return json(404, { error: 'No such notification.' })
+    const session = record.session
+    if (typeof session !== 'string' || session === '') return json(400, { error: 'This notification names no conversation to reply to.' })
+    if (reply === undefined) return json(503, { error: 'Replies need a DSH that lets plugins reach its sessions.' })
+    const askId = (await store.asks(record.person)).asks.find(ask => ask.id === record.thread || ask.id === record.id)?.id
+    try {
+      const sent = await reply({ session, words: value.text, item: { id: record.id, title: record.title, text: record.text, thread: record.thread, ask: askId }, identity: identity()?.current?.() ?? undefined })
+      await store.setRead(record.person, [record.id], true)
+      return json(200, { ok: true, session: sent.session, woke: sent.woke })
+    } catch (error) {
+      return json(error.status ?? 502, { error: error.message })
+    }
   })
 
   const file = handle(async (request, who) => {
@@ -250,7 +270,8 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
   })
   const pushTest = handle(async (request, who) => json(200, await push.test(who.person, await body(request))))
 
-  const words = async () => json(200, { tables: await strings() }, { 'cache-control': 'private, max-age=300' })
+  // Read for each request and never cached: an update in place brings new words with no stale copy anywhere.
+  const words = async () => json(200, { tables: await strings() }, { 'cache-control': 'no-store' })
 
   const worker = async () => new Response(serviceWorker, {
     status: 200,
@@ -265,6 +286,7 @@ export function createRoutes({ store, people, push, actions, identity, serviceWo
     get('/events', events),
     post('/read', read),
     post('/action', action),
+    post('/reply', answer),
     get('/file', file),
     get('/push/config', pushConfig),
     post('/push/state', pushState),
