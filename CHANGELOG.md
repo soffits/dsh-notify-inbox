@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.2
+
+- The folder watchers close when the plugin is unloaded or reloaded; before, each reload left them running.
+
 ## 0.13.1
 
 - Two requests at once no longer show every new notification twice, and two read or unread presses at once no longer fail with an error or lose one of the marks.

@@ -112,6 +112,6 @@ export function apply(ctx, config) {
     logger.error(`Web Push keys unusable, push is off: ${error.message}`)
     return changes.start()
   })
-  ctx.on('dispose', () => changes.stop())
+  ctx.effect(() => () => changes.stop())
   logger.info(`inbox at ${dataDir} (${people.enabled ? 'per person' : 'single owner'})`)
 }
