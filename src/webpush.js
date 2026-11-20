@@ -94,6 +94,7 @@ export async function sendPush(subscription, payload, { vapid, subject, ttl = 86
     method: 'POST',
     headers,
     body: encrypt(typeof payload === 'string' ? payload : JSON.stringify(payload), subscription.keys),
+    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   })
   await response.arrayBuffer().catch(() => undefined)

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDecipheriv, createECDH, createPublicKey, hkdfSync, verify } from 'node:crypto'
+import { createServer } from 'node:http'
 import { b64url, encrypt, generateVapidKeys, loadVapidKeys, sendPush, vapidAuthorization } from '../src/webpush.js'
 
 // RFC 8291, Section 5 and Appendix A.
@@ -79,4 +80,25 @@ test('sendPush posts the encrypted body with the push headers and reports a gone
   assert.equal(decrypt(init.body, RFC.uaPrivate, RFC.auth), '{"title":"Hi"}')
   const second = await sendPush(subscription, 'x', { vapid, subject: 'mailto:a@example.org', fetchImpl })
   assert.equal(second.gone, true)
+})
+
+test('sendPush does not follow a redirect to another address', async () => {
+  const hits = []
+  const inner = createServer((request, response) => { hits.push(request.url); response.end() })
+  await new Promise(resolve => inner.listen(0, '127.0.0.1', resolve))
+  const outer = createServer((request, response) => {
+    response.writeHead(307, { location: `http://127.0.0.1:${inner.address().port}/inside` })
+    response.end()
+  })
+  await new Promise(resolve => outer.listen(0, '127.0.0.1', resolve))
+  try {
+    const vapid = loadVapidKeys(generateVapidKeys())
+    const subscription = { endpoint: `http://127.0.0.1:${outer.address().port}/send`, keys: { p256dh: RFC.uaPublic, auth: RFC.auth } }
+    const result = await sendPush(subscription, 'x', { vapid, subject: 'mailto:a@example.org' })
+    assert.deepEqual([result.ok, result.gone], [false, false])
+    assert.deepEqual(hits, [])
+  } finally {
+    outer.close()
+    inner.close()
+  }
 })
