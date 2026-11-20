@@ -376,3 +376,28 @@ test('the inbox holds notices: a record about an ask is an ordinary item with no
   assert.equal(items[1].actions, undefined, 'a notice carries no buttons, whatever its writer filed')
   for (const route of ['action', 'undo']) assert.equal(byPath.has(`/api/notify-inbox/${route}`), false)
 })
+
+test('an inbox that appears after the first scan is pushed from its first record', async () => {
+  await file('ana', record('old'))
+  const { as, call, push, pushes } = setup()
+  const phone = browser()
+  as(BO_SUB)
+  await call('push/subscribe', { subscription: { endpoint: 'https://push.example/bo-phone', keys: phone.keys } })
+  await push.scan(['ana'])
+  await file('bo', record('first'))
+  await push.scan(['ana', 'bo'])
+  assert.equal(pushes.filter(p => p.url.includes('bo-phone')).length, 1)
+})
+
+test('a person with no inbox mapping cannot see, remove or test the ownerless subscriptions of owner mode', async () => {
+  const owner = setup({ mapping: false, provider: false })
+  const phone = browser()
+  const endpoint = 'https://push.example/owner-phone'
+  assert.equal((await owner.call('push/subscribe', { subscription: { endpoint, keys: phone.keys } })).status, 200)
+  const people = setup()
+  people.as('stranger')
+  assert.equal((await people.call('push/state', { endpoint })).status, 403)
+  assert.equal((await people.call('push/unsubscribe', { endpoint })).status, 403)
+  assert.equal((await people.call('push/test', { title: 'T', body: 'B' })).status, 403)
+  assert.equal((await owner.call('push/state', { endpoint })).body.subscribed, true)
+})
