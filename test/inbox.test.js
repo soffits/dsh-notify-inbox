@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, readFile, rm, stat } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDecipheriv, createECDH, hkdfSync } from 'node:crypto'
-import { createPeople } from '../src/access.js'
+import { createEventStreams, createPeople } from '@soffits/dsh-host-kit'
 import { createChanges } from '../src/changes.js'
 import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'
@@ -39,7 +39,8 @@ function setup({ mapping = true, provider = true, quiet = [] } = {}) {
     fetchImpl: async (url, init) => { pushes.push({ url, init }); return new Response(null, { status: url.includes('gone') ? 410 : 201 }) },
   })
   const changes = createChanges({ dataDir: dir, persons: () => store.persons() })
-  const routes = createRoutes({ store, people, push, changes, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
+  const streams = createEventStreams()
+  const routes = createRoutes({ store, people, push, changes, streams, strings: async () => ({ en: { title: 'Inbox' } }), identity: () => (provider ? identity : undefined), serviceWorker: '/* sw */', domains: domainMap({ legal: { icon: 'scale', tone: 'violet' } }), summaryHours: 12, quiet })
   const byPath = new Map(routes.map(route => [route.path, route.fetch]))
   const call = async (path, body) => {
     const [bare] = path.split('?')

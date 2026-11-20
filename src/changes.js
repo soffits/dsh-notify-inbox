@@ -2,50 +2,36 @@
  * Change notices. The data folder and each person's folder are watched
  * (`fs.watch` on the directories, so a file replaced by a rename is seen as
  * well as one appended to); when one of the files that make up a person's
- * inbox (records, read marks, the summary line) changes,
- * every listener allowed to see that person hears a short notice and the page
- * fetches again, and `onChange` runs (push looks for new records). No timer:
- * the files' own changes are the signal. A folder that appears later is
- * picked up when the data folder reports it.
+ * inbox (records, read marks, the summary line) changes, listeners that may
+ * see that person hear the file's name, the page fetches again and push looks
+ * for new records. No timer: the files' own changes are the signal. A folder
+ * that appears later is picked up when the data folder reports it.
  */
 import { watch } from 'node:fs'
 import { join } from 'node:path'
+import { createNotices } from '@soffits/dsh-host-kit'
 
 export const FILES = ['inbox.jsonl', 'read.json', 'summary.json']
+/** Several writes in one go (an append and its status line, a rename) become one notice. */
 const SETTLE_MS = 50
 
 /**
  * @param {object} options
  * @param {string} options.dataDir
  * @param {() => Promise<string[]>} options.persons - every inbox folder there is
- * @param {(person: string, file: string) => void} [options.onChange] - also called for each change
  * @param {(message: string) => void} [options.warn]
  */
-export function createChanges({ dataDir, persons, onChange = () => {}, warn = () => {} }) {
-  const listeners = new Set()
+export function createChanges({ dataDir, persons, warn = () => {} }) {
+  const notices = createNotices({ settleMs: SETTLE_MS })
   const watchers = new Map()      // folder name ('' for the data folder) -> FSWatcher
-  const pending = new Map()       // person -> { timer, files }
   let stopped = false
-
-  function notify(person, file) {
-    const due = pending.get(person) ?? { timer: undefined, files: new Set() }
-    due.files.add(file)
-    clearTimeout(due.timer)
-    // Several writes in one go (an append and its status line, a rename) become one notice.
-    due.timer = setTimeout(() => {
-      pending.delete(person)
-      for (const listener of listeners) if (listener.folders === null || listener.folders.includes(person)) listener.send(person)
-      for (const name of due.files) onChange(person, name)
-    }, SETTLE_MS)
-    pending.set(person, due)
-  }
 
   function watchFolder(person) {
     if (stopped || watchers.has(person)) return
     try {
       const watcher = watch(join(dataDir, person), (_event, name) => {
-        const file = name === null ? null : String(name)
-        if (file === null || FILES.includes(file)) notify(person, file ?? 'inbox.jsonl')
+        const file = name === null ? 'inbox.jsonl' : String(name)
+        if (FILES.includes(file)) notices.notify(file, person)
       })
       watcher.on('error', error => {
         warn(`stopped watching ${person}: ${error.message}`)
@@ -62,7 +48,7 @@ export function createChanges({ dataDir, persons, onChange = () => {}, warn = ()
     for (const person of await persons()) {
       if (!watchers.has(person)) {
         watchFolder(person)
-        notify(person, 'inbox.jsonl')
+        notices.notify('inbox.jsonl', person)
       }
     }
   }
@@ -80,25 +66,21 @@ export function createChanges({ dataDir, persons, onChange = () => {}, warn = ()
     for (const person of await persons()) watchFolder(person)
   }
 
-  /**
-   * Hear about changes to these folders (null: every folder, for an owner who sees them all).
-   * @returns {() => void} stop listening
-   */
-  function listen(folders, send) {
-    const listener = { folders, send }
-    listeners.add(listener)
-    return () => listeners.delete(listener)
-  }
-
   /** Stop at once (the plugin is going away). */
   function stop() {
     stopped = true
-    listeners.clear()
     for (const watcher of watchers.values()) watcher.close()
     watchers.clear()
-    for (const { timer } of pending.values()) clearTimeout(timer)
-    pending.clear()
+    notices.close()
   }
 
-  return { start, listen, stop }
+  return {
+    start,
+    stop,
+    /**
+     * Hear the names of the changed files, only for the folders `accepts` takes (omit it to hear them all).
+     * @type {(send: (files: string[]) => void, accepts?: (person: string) => boolean) => () => void}
+     */
+    listen: notices.listen,
+  }
 }
