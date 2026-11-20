@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.1
+
+- Two requests at once no longer show every new notification twice, and two read or unread presses at once no longer fail with an error or lose one of the marks.
+- A push endpoint that answers with a redirect is no longer followed. A person without an inbox is refused on the push state, unsubscribe and test routes. An inbox that first appears after the plugin started is pushed from its first record.
+- The README says which leftover files of 0.12 and 0.13 can be deleted and what stays when the plugin is removed.
+
 ## 0.13.0
 
 - Every notification has two buttons, Ask and Mark read / Mark unread. The buttons a writer filed in `actions` (done, snooze, steps, events, links) are no longer shown, and `POST /api/notify-inbox/action`, `<person>/actions.jsonl` and the `type: handled` status lines it read are gone (such lines are skipped). An urgent item stays urgent; there is no done or snooze to move it.
