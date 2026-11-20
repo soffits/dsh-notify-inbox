@@ -4,7 +4,7 @@
  * A notification router outside DSH files each message as one JSON line per
  * person (`<dataDir>/<person>/inbox.jsonl`). This plugin shows each signed-in
  * person their own inbox with read and unread, sends Web Push to the browsers
- * they subscribed, and turns presses on a notification's buttons into events.
+ * they subscribed, and gives each notification a button to talk about it.
  * It holds no credentials but its own VAPID key and contacts nothing but the
  * push services the subscribed browsers chose.
  */

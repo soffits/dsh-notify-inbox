@@ -173,8 +173,6 @@ export function createRoutes({ store, people, push, identity, serviceWorker, str
     return json(200, { ok: true })
   })
 
-
-
   const file = handle(async (request, who) => {
     const params = new URL(request.url).searchParams
     const found = await store.file(who.folders, params.get('id') ?? '', params.get('name') ?? '')
@@ -193,13 +191,14 @@ export function createRoutes({ store, people, push, identity, serviceWorker, str
     })
   })
 
+  const ownInbox = fn => handle((request, who) => (who.mode === 'people' && who.person === undefined ? json(403, { error: 'You have no inbox here.' }) : fn(request, who)))
+
   const pushConfig = handle(async () => json(200, { publicKey: (await push.vapid()).publicKey }))
-  const pushState = handle(async (request, who) => {
+  const pushState = ownInbox(async (request, who) => {
     const value = await body(request)
     return json(200, { subscribed: typeof value.endpoint === 'string' && (await push.has(who.person, value.endpoint)) })
   })
-  const subscribe = handle(async (request, who) => {
-    if (who.mode === 'people' && who.person === undefined) return json(403, { error: 'You have no inbox here.' })
+  const subscribe = ownInbox(async (request, who) => {
     const value = await body(request)
     try {
       await push.subscribe(who.person, value.subscription, value.label)
@@ -208,13 +207,13 @@ export function createRoutes({ store, people, push, identity, serviceWorker, str
     }
     return json(200, { ok: true })
   })
-  const unsubscribe = handle(async (request, who) => {
+  const unsubscribe = ownInbox(async (request, who) => {
     const value = await body(request)
     if (typeof value.endpoint !== 'string') return json(400, { error: 'Send the endpoint.' })
     await push.unsubscribe(who.person, value.endpoint)
     return json(200, { ok: true })
   })
-  const pushTest = handle(async (request, who) => json(200, await push.test(who.person, await body(request))))
+  const pushTest = ownInbox(async (request, who) => json(200, await push.test(who.person, await body(request))))
 
   // Read for each request and never cached: an update in place brings new words with no stale copy anywhere.
   const words = async () => json(200, { tables: await strings() }, { 'cache-control': 'no-store' })

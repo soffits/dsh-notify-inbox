@@ -43,7 +43,7 @@ Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a pro
 | `summaryHours` | `12` | How long the summary line is shown after it was written. |
 | `quiet` | none | People (person ids) whose bell never shows a count: a soft grey dot says something is new instead of a red number, for someone who wants their inbox to invite rather than nag. |
 
-**Who sees what.** With a mapping, every request is checked on the server: a person sees, marks and presses only their own inbox, and a request without a verified identity sees nothing. The identity comes from any plugin that provides a `requestIdentity` service (`current()` → `{ provider, issuer, id, name } | null`), such as [dsh-oidc](https://github.com/soffits/dsh-oidc) 0.3.0-alpha.9 or later. Without a mapping (a DSH only you use), you see every folder.
+**Who sees what.** With a mapping, every request is checked on the server: a person sees, marks only their own inbox, and a request without a verified identity sees nothing. The identity comes from any plugin that provides a `requestIdentity` service (`current()` → `{ provider, issuer, id, name } | null`), such as [dsh-oidc](https://github.com/soffits/dsh-oidc) 0.3.0-alpha.9 or later. Without a mapping (a DSH only you use), you see every folder.
 
 ## Writing notifications
 
@@ -103,9 +103,13 @@ The page follows DSH's language. Its words live in `locale/<tag>.json` (`ui` for
 
 All under `dataDir`: `<person>/read.json` (read and unread marks), `.push/subscriptions.json` and `.push/cursor.json` (how far each inbox was pushed, so a restart doesn't push the backlog), and the VAPID key unless `vapidFile` says otherwise. It never rewrites `inbox.jsonl`.
 
+## Leftovers from older versions
+
+0.12 and 0.13 stopped reading `<person>/asks.json` and writing `<person>/actions.jsonl`; both can be deleted by hand, as can any presses logs.
+
 ## Removing it
 
-Remove the plugin from the profile. The data folder stays until you delete it; browsers keep a dormant service worker under `/api/notify-inbox/` until their site data is cleared.
+Remove the plugin from the profile. The data folder stays until you delete it, including `<person>/read.json`, the Web Push subscriptions in `.push/subscriptions.json` and the VAPID key; the router's own files (`inbox.jsonl`, `summary.json`) are never touched. Browsers keep a dormant service worker under `/api/notify-inbox/` until their site data is cleared.
 
 ## License
 

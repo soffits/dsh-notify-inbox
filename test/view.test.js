@@ -4,11 +4,11 @@ import { LIVE_IDLE_MS, buildItems, countItems, groupOf, liveNow } from '../src/v
 import { attentionOf, normalize } from '../src/store.js'
 
 const NOW = Date.parse('2026-11-17T18:00:00Z')
-const row = (id, extra = {}) => ({ ...normalize({ id, time: '2026-11-17T17:00:00Z', ...extra }, 'ana'), read: false, outcomes: [] })
+const row = (id, extra = {}) => ({ ...normalize({ id, time: '2026-11-17T17:00:00Z', ...extra }, 'ana'), read: false })
 
 test('a record without attention is grouped the way the router documents', () => {
   assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z', lane: 'interrupt' }, 'ana')), 'urgent')
-  assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z', actions: [{ kind: 'snooze', id: 's' }] }, 'ana')), 'info')
+  assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z' }, 'ana')), 'info')
   assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z', handled: 'Done for you.' }, 'ana')), 'handled')
   assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z', live: { until: 'soon' } }, 'ana')), 'live')
   assert.equal(attentionOf(normalize({ id: 'a', time: '2026-11-17T17:00:00Z', attention: 'urgent' }, 'ana')), 'urgent')

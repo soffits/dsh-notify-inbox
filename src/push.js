@@ -8,7 +8,8 @@
  * A subscription belongs to the person who made it (`person`), or to the
  * owner of a single-owner DSH (`person: null`), who gets every person's
  * records. A fresh install starts its cursor at the end of each inbox, so it
- * never pushes old records; after a restart it pushes what arrived meanwhile.
+ * never pushes old records; after a restart it pushes what arrived meanwhile,
+ * and an inbox that first appears later is pushed from its first record.
  */
 import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -178,8 +179,10 @@ export function createPush({ dataDir, vapidFile, subject, perPerson, warn, fetch
   /** Push what was appended to each person's inbox since the last scan. */
   function scan(people) {
     return serial(async () => {
-      const cursor = await readJson(cursorPath, {})
-      let changed = false
+      const stored = await readJson(cursorPath, undefined)
+      const freshInstall = stored === undefined
+      const cursor = stored ?? {}
+      let changed = freshInstall
       for (const person of people) {
         const path = join(dataDir, person, 'inbox.jsonl')
         let info
@@ -188,8 +191,10 @@ export function createPush({ dataDir, vapidFile, subject, perPerson, warn, fetch
         } catch {
           continue
         }
-        const seen = cursor[person]
-        if (seen === undefined || seen.ino !== info.ino || info.size < seen.offset) {
+        let seen = cursor[person]
+        if (seen === undefined && !freshInstall) {
+          seen = { ino: info.ino, offset: 0 }
+        } else if (seen === undefined || seen.ino !== info.ino || info.size < seen.offset) {
           cursor[person] = { ino: info.ino, offset: info.size }
           changed = true
           continue

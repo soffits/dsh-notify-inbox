@@ -13,6 +13,7 @@
  * and counted, never fatal.
  */
 import { open, readFile, readdir, rename, stat, writeFile, mkdir } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 export const PERSON_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -168,9 +169,23 @@ async function readHead(path, length) {
 }
 
 async function atomicWrite(path, value) {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`
+  const tmp = `${path}.${randomUUID()}.tmp`
   await writeFile(tmp, JSON.stringify(value), { mode: 0o600 })
   await rename(tmp, path)
+}
+
+/** Runs tasks with the same key one after another; tasks with different keys don't wait for each other. */
+function keyedQueue() {
+  const tails = new Map()
+  return (key, task) => {
+    const run = (tails.get(key) ?? Promise.resolve()).then(task)
+    const tail = run.catch(() => undefined)
+    tails.set(key, tail)
+    tail.then(() => {
+      if (tails.get(key) === tail) tails.delete(key)
+    })
+    return run
+  }
 }
 
 /**
@@ -185,6 +200,8 @@ export function isRead(marks, record) {
 
 export function createStore(dataDir) {
   const cache = new Map()      // person -> { ino, offset, records, bad }
+  const reading = keyedQueue()
+  const writing = keyedQueue()
 
   async function persons() {
     let entries
@@ -196,8 +213,10 @@ export function createStore(dataDir) {
     return entries.filter(entry => entry.isDirectory() && PERSON_PATTERN.test(entry.name)).map(entry => entry.name).sort()
   }
 
-  /** Every record of one person, oldest first. */
-  async function records(person) {
+  /** Every record of one person, oldest first. One read at a time per person, so a byte range is never parsed twice. */
+  const records = person => reading(person, () => readRecords(person))
+
+  async function readRecords(person) {
     const path = join(dataDir, person, INBOX)
     let info
     try {
@@ -242,7 +261,9 @@ export function createStore(dataDir) {
    * Mark some records read or unread; ids that aren't this person's are ignored.
    * Each list keeps only what the watermark doesn't already say.
    */
-  async function setRead(person, ids, value) {
+  const setRead = (person, ids, value) => writing(person, () => writeRead(person, ids, value))
+
+  async function writeRead(person, ids, value) {
     const byId = new Map((await records(person)).records.map(row => [row.id, row]))
     const current = await marks(person)
     const read = new Set(current.read)
@@ -260,7 +281,9 @@ export function createStore(dataDir) {
   }
 
   /** Mark everything up to the newest record read; the per-id lists drop what the watermark covers. */
-  async function markAllRead(person) {
+  const markAllRead = person => writing(person, () => writeAllRead(person))
+
+  async function writeAllRead(person) {
     const all = (await records(person)).records
     if (all.length === 0) return
     const readBefore = all.reduce((latest, record) => (record.time > latest ? record.time : latest), '')
