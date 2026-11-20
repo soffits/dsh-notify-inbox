@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BASE, readLocales, tables } from '../src/locales.js'
+import { BASE, readLocales, tables } from '@soffits/dsh-host-kit'
 
 const dir = new URL('../locale/', import.meta.url)
 const read = name => JSON.parse(readFileSync(new URL(name, dir), 'utf8'))

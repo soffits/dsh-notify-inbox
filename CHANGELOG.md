@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.3
+
+- An open inbox page's event stream now ends when the plugin is unloaded or updated, so the page reconnects to the new version; before, it stayed connected to the old one and heard no more changes.
+- The person mapping, the words and the event stream come from the shared `@soffits/dsh-host-kit` instead of copies kept here. A broken language file is now skipped with a warning instead of failing the words for every language.
+
 ## 0.13.2
 
 - The folder watchers close when the plugin is unloaded or reloaded; before, each reload left them running.

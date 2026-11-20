@@ -13,12 +13,12 @@
  *   POST /api/notify-inbox/push/subscribe            { subscription, label }
  *   POST /api/notify-inbox/push/unsubscribe          { endpoint }
  *   POST /api/notify-inbox/push/test
- *   GET  /api/notify-inbox/strings                   the page's words by language tag (src/locales.js)
+ *   GET  /api/notify-inbox/strings                   the page's words by language tag (locale/<tag>.json)
  *   GET  /api/notify-inbox/sw.js                     the service worker (scope /api/notify-inbox/)
  */
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
-import { viewerOf } from './access.js'
+import { viewerOf } from '@soffits/dsh-host-kit'
 import { PERSON_PATTERN } from './store.js'
 import { buildItems, countItems } from './view.js'
 
@@ -28,7 +28,6 @@ const PAGE = 50
 /** Most items a filtered view keeps on screen after they leave it (keys in `keep`). */
 const KEEP_MAX = 200
 const ITEM_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
-const HEARTBEAT_MS = 25 * 1000
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -59,16 +58,17 @@ async function body(request) {
 /**
  * @param {object} options
  * @param {ReturnType<import('./store.js').createStore>} options.store
- * @param {ReturnType<import('./access.js').createPeople>} options.people
+ * @param {ReturnType<import('@soffits/dsh-host-kit').createPeople>} options.people
  * @param {ReturnType<import('./push.js').createPush>} options.push
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
  * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag, read for each request
  * @param {ReturnType<import('./changes.js').createChanges>} options.changes
+ * @param {ReturnType<import('@soffits/dsh-host-kit').createEventStreams>} options.streams - the open event streams, ended when the plugin unloads
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
  */
-export function createRoutes({ store, people, push, identity, serviceWorker, strings = async () => ({}), changes, domains, summaryHours, quiet = [] }) {
+export function createRoutes({ store, people, push, identity, serviceWorker, strings = async () => ({}), changes, streams, domains, summaryHours, quiet = [] }) {
   const hushed = new Set(quiet.map(person => String(person).trim().toLowerCase()))
   /** Who is asking, as the inbox folders they may read; undefined with the response to send instead. */
   async function caller() {
@@ -121,43 +121,10 @@ export function createRoutes({ store, people, push, identity, serviceWorker, str
     return json(200, { items: page, more: items.length > limit })
   })
 
-  /** A notice per change, a comment every 25 s so proxies keep the stream open; ends when the page goes. */
+  /** A notice whenever the caller's inbox changed; ends when the page goes. */
   const events = handle(async (request, who) => {
-    const encoder = new TextEncoder()
-    let stop = () => {}
-    const stream = new ReadableStream({
-      start(controller) {
-        const write = chunk => {
-          try {
-            controller.enqueue(encoder.encode(chunk))
-          } catch {
-            stop()
-          }
-        }
-        write('retry: 5000\n: open\n\n')
-        const unlisten = changes.listen(who.mode === 'owner' ? null : who.folders, () => write(`data: ${JSON.stringify({ type: 'change', at: new Date().toISOString() })}\n\n`))
-        const beat = setInterval(() => write(': beat\n\n'), HEARTBEAT_MS)
-        stop = () => {
-          unlisten()
-          clearInterval(beat)
-        }
-        request.signal?.addEventListener('abort', () => {
-          stop()
-          try {
-            controller.close()
-          } catch {
-            // Already closed.
-          }
-        }, { once: true })
-      },
-      cancel() {
-        stop()
-      },
-    })
-    return new Response(stream, {
-      status: 200,
-      headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'private, no-cache, no-transform', 'x-accel-buffering': 'no', 'x-content-type-options': 'nosniff' },
-    })
+    const mine = who.mode === 'owner' ? undefined : person => who.folders.includes(person)
+    return streams.respond(request, ({ send }) => changes.listen(() => send({ type: 'change', at: new Date().toISOString() }), mine))
   })
 
   const read = handle(async (request, who) => {

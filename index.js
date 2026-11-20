@@ -13,13 +13,12 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
-import { createPeople, expandHome } from './src/access.js'
+import { createEventStreams, createPeople, expandHome, readLocales, tables } from '@soffits/dsh-host-kit'
 import { createChanges } from './src/changes.js'
 import { TONES, domainMap } from './src/domains.js'
 import { createPush } from './src/push.js'
 import { createRoutes } from './src/routes.js'
 import { createStore } from './src/store.js'
-import { readLocales, tables } from './src/locales.js'
 
 export const name = 'dsh-notify-inbox'
 export const inject = ['connection']
@@ -77,7 +76,7 @@ export function apply(ctx, config) {
     warn,
   })
   const localeDir = fileURLToPath(new URL('./locale/', import.meta.url))
-  const strings = () => readLocales(localeDir).then(tables)
+  const strings = () => readLocales(localeDir, { warn }).then(tables)
   // New records are pushed when the inbox file changes; one scan at a time, and one more if a change came meanwhile.
   let scanning = null
   let again = false
@@ -96,9 +95,11 @@ export function apply(ctx, config) {
     await scanning
     scanning = null
   }
-  const changes = createChanges({ dataDir, persons: () => store.persons(), warn, onChange: (_person, file) => { if (file === 'inbox.jsonl') scan() } })
+  const changes = createChanges({ dataDir, persons: () => store.persons(), warn })
+  changes.listen(files => { if (files.includes('inbox.jsonl')) scan() })
+  const streams = createEventStreams()
   const routes = createRoutes({
-    store, people, push, changes,
+    store, people, push, changes, streams,
     identity: () => ctx.get('requestIdentity'),
     serviceWorker,
     strings,
@@ -112,6 +113,9 @@ export function apply(ctx, config) {
     logger.error(`Web Push keys unusable, push is off: ${error.message}`)
     return changes.start()
   })
-  ctx.effect(() => () => changes.stop())
+  ctx.effect(() => () => {
+    streams.close()
+    changes.stop()
+  })
   logger.info(`inbox at ${dataDir} (${people.enabled ? 'per person' : 'single owner'})`)
 }
