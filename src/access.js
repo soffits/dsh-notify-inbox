@@ -1,17 +1,16 @@
 /**
- * Who may see which board.
+ * Who is asking, and which person's inbox that is.
  *
  * The caller comes from a `requestIdentity` service, if one is installed: any
  * plugin that verifies the person behind an `/api` request can provide it
  * (`current()` returns `{ id, ... }` or null). The verified user id maps to a
- * person id through the configured mapping, and a board lists the person ids
- * that may see it in `viewers`.
+ * person id through the configured mapping.
  *
  * Two modes:
  * - people: a mapping is configured. A request needs a verified identity that
- *   maps to a person, and sees only boards that list that person. Without an
- *   identity provider nothing is shown.
- * - owner: no mapping. Everyone DSH lets in is its owner and sees every board,
+ *   maps to a person, and sees only that person's inbox. Without an identity
+ *   provider nothing is shown.
+ * - owner: no mapping. Everyone DSH lets in is its owner and sees every inbox,
  *   which is what a single-person DSH wants.
  */
 import { readFile, stat } from 'node:fs/promises'
@@ -82,11 +81,4 @@ export async function viewerOf(people, identityService) {
   if (identityService === undefined || typeof identityService?.current !== 'function') return { mode: 'people', unavailable: true }
   const identity = identityService.current()
   return { mode: 'people', person: await people.personFor(identity?.id) }
-}
-
-/** Whether a viewer may see a board (its board.json already validated). */
-export function maySee(viewer, board) {
-  if (viewer.mode === 'owner') return true
-  if (viewer.person === undefined || board === undefined) return false
-  return (board.viewers ?? []).some(person => personKey(person) === viewer.person)
 }

@@ -17,9 +17,8 @@ const BO_SUB = 'sub-bo'
 let dir
 
 const record = (id, extra = {}) => ({
-  v: 1, id, person: 'x', time: '2026-11-17T15:00:00Z', lane: 'next-moment', domain: 'orders', title: `Title ${id}`,
+  v: 1, id, time: '2026-11-17T15:00:00Z', lane: 'next-moment', domain: 'orders', title: `Title ${id}`,
   spoken: `Spoken ${id}`, text: `Text ${id}`, links: [], files: [], source: 'test', key: `k-${id}`,
-  actions: [{ kind: 'done', id: 'done', label: '', payload: {} }, { kind: 'snooze', id: 'snooze', label: '', payload: {} }],
   test: false, push: true, routed: [{ destination: 'chat', type: 'telegram', ok: true }], ...extra,
 })
 
@@ -218,7 +217,7 @@ test('the service worker is served as JavaScript', async () => {
 test('a thread is one item: the newest on top, the older ones as its history, read only when all are', async () => {
   await file('ana',
     record('m1', { time: '2026-11-17T15:00:00Z', thread: 'todo-42', title: 'Reminder', spoken: 'Today, left side' }),
-    record('x1', { time: '2026-11-17T16:00:00Z', actions: [] }),
+    record('x1', { time: '2026-11-17T16:00:00Z' }),
     record('m2', { time: '2026-11-17T18:30:00Z', thread: 'todo-42', title: 'Still open', spoken: 'Second reminder' }))
   await file('bo', record('b1', { thread: 'todo-42' }))
   const { as, call } = setup({ mapping: false, provider: false })
@@ -236,15 +235,15 @@ test('a thread is one item: the newest on top, the older ones as its history, re
   assert.equal((await call('items')).body.items.find(item => item.key === thread.key).read, true)
 })
 
-test('groups come from the writer, else from lane and buttons; counts, the summary line and the domain map', async () => {
+test('groups come from the writer, else from lane; counts, the summary line and the domain map', async () => {
   const soon = new Date(Date.now() + 3600 * 1000).toISOString()
   const past = new Date(Date.now() - 3600 * 1000).toISOString()
   await file('ana',
-    record('n1', { lane: 'interrupt', actions: [] }),
-    record('i1', { actions: [{ kind: 'step', id: 's', label: 'Plan it', payload: {} }] }),
-    record('h1', { actions: [], handled: { text: 'Asked again; follow-up set.' } }),
-    record('l1', { actions: [], thread: 'flight', live: { until: soon, progress: { from: past, to: soon } } }),
-    record('l2', { actions: [], thread: 'job', attention: 'live', live: { until: past } }),
+    record('n1', { lane: 'interrupt' }),
+    record('i1'),
+    record('h1', { handled: { text: 'Asked again; follow-up set.' } }),
+    record('l1', { thread: 'flight', live: { until: soon, progress: { from: past, to: soon } } }),
+    record('l2', { thread: 'job', attention: 'live', live: { until: past } }),
     record('e1', { attention: 'info' }))
   await writeFile(join(dir, 'ana', 'summary.json'), JSON.stringify({ v: 1, text: 'Two things need you.', at: new Date().toISOString() }))
   const { as, call } = setup()
@@ -326,9 +325,9 @@ test('a quiet person gets a dot, never a count, on the bell', async () => {
 test('All lists items strictly by time, newest first, whatever group they are in', async () => {
   const at = minutes => new Date(Date.parse('2026-11-17T15:00:00Z') + minutes * 60000).toISOString()
   await file('ana',
-    record('old-urgent', { lane: 'interrupt', actions: [], time: at(0) }),
+    record('old-urgent', { lane: 'interrupt', time: at(0) }),
     record('mid-info', { attention: 'info', time: at(10) }),
-    record('new-handled', { actions: [], handled: { text: 'Done.' }, time: at(20) }),
+    record('new-handled', { handled: { text: 'Done.' }, time: at(20) }),
     record('newest-info', { attention: 'info', time: at(30) }))
   const { as, call } = setup()
   as(ANA_SUB)
@@ -344,7 +343,7 @@ test('Unread lists only unread items in time order, and keeps what the page alre
   const at = minutes => new Date(Date.parse('2026-11-17T15:00:00Z') + minutes * 60000).toISOString()
   await file('ana',
     record('a1', { attention: 'info', time: at(0) }),
-    record('a2', { lane: 'interrupt', actions: [], time: at(10) }),
+    record('a2', { lane: 'interrupt', time: at(10) }),
     record('a3', { attention: 'info', time: at(20) }),
     record('a4', { attention: 'info', time: at(30) }))
   const { as, call } = setup()
@@ -362,9 +361,9 @@ test('Unread lists only unread items in time order, and keeps what the page alre
 
 test('the inbox holds notices: a record about an ask is an ordinary item with no buttons, and an asks file beside it is not read', async () => {
   await file('ana',
-    record('a1', { attention: 'needs-you', thread: 'todo:u1', todo: 'u1', session: 'session-abc' }),
+    record('a1', { attention: 'needs-you', actions: [{ kind: 'done', id: 'done', label: '', payload: {} }], thread: 'todo:u1', todo: 'u1', session: 'session-abc' }),
     record('a2', { attention: 'needs-you', lane: 'interrupt', time: '2026-11-17T15:01:00Z' }))
-  await writeFile(join(dir, 'ana', 'asks.json'), JSON.stringify({ v: 1, person: 'ana', asks: [{ id: 'todo:u2', title: 'Pick one', time: '2026-11-17T15:00:00Z', actions: [] }] }))
+  await writeFile(join(dir, 'ana', 'asks.json'), JSON.stringify({ v: 1, person: 'ana', asks: [{ id: 'todo:u2', title: 'Pick one', time: '2026-11-17T15:00:00Z' }] }))
   const { as, call, byPath } = setup()
   as(ANA_SUB)
   const { items } = (await call('items')).body
