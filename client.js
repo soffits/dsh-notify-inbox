@@ -6,7 +6,7 @@
  * Plain JavaScript in DSH's Client module format (no build step). The page is
  * built from DSH's own controls (@deepseek-ai/dsh-client-ui-primitives, from
  * the page's module table), the shared pieces DSH doesn't have from
- * @soffits/dsh-ui-kit (ctx.uiKit) and the chat button from @soffits/dsh-ui-actions
+ * @soffits/dsh-plugin-sdk (ctx.uiKit) and the chat button from @soffits/dsh-plugin-sdk
  * (ctx.uiActions); the little CSS of its own is in docs/ui.md, with why.
  * Everything the page shows comes from the plugin's /api/notify-inbox routes,
  * which decide per request who is asking. A link with ?notify-inbox=<id>
@@ -435,7 +435,7 @@ window.__ModuleLoader__.load({
           return () => tag.remove()
         }, 'notify-inbox: styles')
 
-        // Shared pieces DSH doesn't have (tiles, time, live status, history): @soffits/dsh-ui-kit.
+        // Shared pieces DSH doesn't have (tiles, time, live status, history): @soffits/dsh-plugin-sdk.
         ctx.inject(['uiKit'], scope => {
           scope.effect(() => {
             shared.kit = scope.uiKit
@@ -444,7 +444,7 @@ window.__ModuleLoader__.load({
           }, 'notify-inbox: kit')
         })
 
-        // The chat button, when @soffits/dsh-ui-actions is installed; without it only the read toggle shows.
+        // The chat button, when @soffits/dsh-plugin-sdk is installed; without it only the read toggle shows.
         ctx.inject(['uiActions'], scope => {
           scope.effect(() => {
             shared.ui = scope.uiActions

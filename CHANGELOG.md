@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.4
+
+- Shared parts now come from `@soffits/dsh-plugin-sdk`, which replaced `@soffits/dsh-host-kit`, `@soffits/dsh-ui-kit` and `@soffits/dsh-ui-actions`; the page loads after it. Install `@soffits/dsh-plugin-sdk` in the profile alongside this plugin.
+
 ## 0.13.3
 
 - An open inbox page's event stream now ends when the plugin is unloaded or updated, so the page reconnects to the new version; before, it stayed connected to the old one and heard no more changes.

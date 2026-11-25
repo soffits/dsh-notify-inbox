@@ -18,7 +18,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
-import { viewerOf } from '@soffits/dsh-host-kit'
+import { viewerOf } from '@soffits/dsh-plugin-sdk/host'
 import { PERSON_PATTERN } from './store.js'
 import { buildItems, countItems } from './view.js'
 
@@ -58,13 +58,13 @@ async function body(request) {
 /**
  * @param {object} options
  * @param {ReturnType<import('./store.js').createStore>} options.store
- * @param {ReturnType<import('@soffits/dsh-host-kit').createPeople>} options.people
+ * @param {ReturnType<import('@soffits/dsh-plugin-sdk/host').createPeople>} options.people
  * @param {ReturnType<import('./push.js').createPush>} options.push
  * @param {() => object | undefined} options.identity - the requestIdentity service right now, if any
  * @param {string} options.serviceWorker - the service worker's source
  * @param {() => Promise<Record<string, Record<string, string>>>} [options.strings] - the page's words, complete per tag, read for each request
  * @param {ReturnType<import('./changes.js').createChanges>} options.changes
- * @param {ReturnType<import('@soffits/dsh-host-kit').createEventStreams>} options.streams - the open event streams, ended when the plugin unloads
+ * @param {ReturnType<import('@soffits/dsh-plugin-sdk/host').createEventStreams>} options.streams - the open event streams, ended when the plugin unloads
  * @param {Record<string, { icon: string, tone?: string }>} options.domains - the domain map (src/domains.js)
  * @param {number} options.summaryHours - how long a summary line is shown
  */
