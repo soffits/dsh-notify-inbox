@@ -2,7 +2,7 @@
  * The icon (and optionally the colour) each domain is drawn with. Records
  * already carry a `domain` (mail, money, home...); these defaults cover the
  * common ones and the `domains` setting adds or replaces entries. Icons are
- * Lucide names drawn by @soffits/dsh-ui-kit. A domain names no colour by
+ * Lucide names drawn by @soffits/dsh-plugin-sdk. A domain names no colour by
  * default: an item's colour says what it needs (its group), so a page of
  * notifications isn't a rainbow; set `tone` only for a domain that should
  * stand out wherever it shows.

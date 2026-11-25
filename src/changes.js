@@ -9,7 +9,7 @@
  */
 import { watch } from 'node:fs'
 import { join } from 'node:path'
-import { createNotices } from '@soffits/dsh-host-kit'
+import { createNotices } from '@soffits/dsh-plugin-sdk/host'
 
 export const FILES = ['inbox.jsonl', 'read.json', 'summary.json']
 /** Several writes in one go (an append and its status line, a rename) become one notice. */

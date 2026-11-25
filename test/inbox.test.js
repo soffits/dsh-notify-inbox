@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, readFile, rm, stat } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDecipheriv, createECDH, hkdfSync } from 'node:crypto'
-import { createEventStreams, createPeople } from '@soffits/dsh-host-kit'
+import { createEventStreams, createPeople } from '@soffits/dsh-plugin-sdk/host'
 import { createChanges } from '../src/changes.js'
 import { domainMap } from '../src/domains.js'
 import { checkSubscription, createPush } from '../src/push.js'

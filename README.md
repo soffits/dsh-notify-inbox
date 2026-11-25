@@ -12,10 +12,10 @@ The contract is files, so nothing gets lost while DSH restarts: the writer keeps
 npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-notify-inbox@latest
 ```
 
-It needs two small shared plugins next to it, [@soffits/dsh-ui-kit](https://github.com/soffits/dsh-ui-kit) (icons, live time, history) and [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions) (the chat button):
+It needs two small shared plugins next to it, [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-kit) (icons, live time, history) and [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-actions) (the chat button):
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-ui-kit@latest @soffits/dsh-ui-actions@latest
+npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-plugin-sdk@latest @soffits/dsh-plugin-sdk@latest
 ```
 
 Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a profile override of the `notify-inbox` row:
@@ -77,7 +77,7 @@ Lines with a `type` are not records and are skipped; other bad lines are skipped
 
 ## Buttons
 
-Every notification has two: **Ask** and **Mark read** / **Mark unread**. Ask comes from [@soffits/dsh-ui-actions](https://github.com/soffits/dsh-ui-actions) (install it as a plugin too, `dsh plugin --profile web add @soffits/dsh-ui-actions`; without it only the read toggle shows): it opens a new session with the notification attached to the message box as a card (removable), and the person writes their own words beside it. The sent message shows the same card; the agent gets the notification as a short quote with its id. Since the person sends it from the Web UI, the sign-in plugin records them as the sender. Links in the text and `links` stay links.
+Every notification has two: **Ask** and **Mark read** / **Mark unread**. Ask comes from [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-actions) (install it as a plugin too, `dsh plugin --profile web add @soffits/dsh-plugin-sdk`; without it only the read toggle shows): it opens a new session with the notification attached to the message box as a card (removable), and the person writes their own words beside it. The sent message shows the same card; the agent gets the notification as a short quote with its id. Since the person sends it from the Web UI, the sign-in plugin records them as the sender. Links in the text and `links` stay links.
 
 A notice informs. Anything the person must decide or do belongs to a list of their own, with its buttons where that list shows it, so the inbox never offers a second way to act on it.
 
