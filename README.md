@@ -12,24 +12,23 @@ The contract is files, so nothing gets lost while DSH restarts: the writer keeps
 npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-notify-inbox@latest
 ```
 
-It needs two small shared plugins next to it, [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-kit) (icons, live time, history) and [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-actions) (the chat button):
+It needs the shared [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-plugin-sdk) next to it (icons, live time, history, and the chat button):
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-plugin-sdk@latest @soffits/dsh-plugin-sdk@latest
+npx @deepseek-ai/dsh plugin --profile web add @soffits/dsh-plugin-sdk@latest
 ```
 
-Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a profile override of the `notify-inbox` row:
+Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` by overriding the `notify-inbox` row in your profile's `cordis.patch.yml` (an override replaces the row's whole `config`, so list every setting you use):
 
 ```yaml
-- override:
-    - id: notify-inbox
-      config:
-        dataDir: ~/notify-inbox
-        # For a DSH several people sign in to (needs a sign-in plugin that provides requestIdentity):
-        peopleFile: ~/people.json
-        peopleKey: oidc_users
-        vapidFile: ~/secrets/notify-inbox/vapid.json
-        vapidSubject: mailto:you@example.org
+- id: notify-inbox
+  config:
+    dataDir: ~/notify-inbox
+    # For a DSH several people sign in to (needs a sign-in plugin that provides requestIdentity):
+    peopleFile: ~/people.json
+    peopleKey: oidc_users
+    vapidFile: ~/secrets/notify-inbox/vapid.json
+    vapidSubject: mailto:you@example.org
 ```
 
 | Option | Default | Meaning |
@@ -48,6 +47,15 @@ Restart `dsh web`. The inbox appears in the sidebar. Then set `dataDir` in a pro
 ## Writing notifications
 
 Append one JSON object per line to `<dataDir>/<person>/inbox.jsonl` (person ids are lower-case letters, digits, `-` and `_`). Append whole lines in one write; a line still being written is picked up when it ends.
+
+To try it on a DSH only you use (any folder name works; you see every folder), file the smallest notification from a shell:
+
+```sh
+mkdir -p ~/.dsh/notify-inbox/me
+echo '{"v":1,"id":"hello-1","time":"'"$(date -u +%FT%TZ)"'","title":"Hello","text":"First notification"}' >> ~/.dsh/notify-inbox/me/inbox.jsonl
+```
+
+It shows up in the inbox as soon as the file changes. A fuller record:
 
 ```json
 {"v": 1, "id": "20261117T155012Z-3f9a1c", "time": "2026-11-17T15:50:12Z", "lane": "interrupt",
@@ -77,7 +85,7 @@ Lines with a `type` are not records and are skipped; other bad lines are skipped
 
 ## Buttons
 
-Every notification has two: **Ask** and **Mark read** / **Mark unread**. Ask comes from [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-ui-actions) (install it as a plugin too, `dsh plugin --profile web add @soffits/dsh-plugin-sdk`; without it only the read toggle shows): it opens a new session with the notification attached to the message box as a card (removable), and the person writes their own words beside it. The sent message shows the same card; the agent gets the notification as a short quote with its id. Since the person sends it from the Web UI, the sign-in plugin records them as the sender. Links in the text and `links` stay links.
+Every notification has two: **Ask** and **Mark read** / **Mark unread**. Ask comes from [@soffits/dsh-plugin-sdk](https://github.com/soffits/dsh-plugin-sdk) (without it only the read toggle shows): it opens a new session with the notification attached to the message box as a card (removable), and the person writes their own words beside it. The sent message shows the same card; the agent gets the notification as a short quote with its id. Since the person sends it from the Web UI, the sign-in plugin records them as the sender. Links in the text and `links` stay links.
 
 A notice informs. Anything the person must decide or do belongs to a list of their own, with its buttons where that list shows it, so the inbox never offers a second way to act on it.
 
